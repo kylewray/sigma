@@ -1,7 +1,0 @@
-set(_CATKIN_CURRENT_PACKAGE "sigma")
-set(sigma_MAINTAINER "Kyle Hollins Wray <wray@cs.umass.edu>")
-set(sigma_DEPRECATED "")
-set(sigma_VERSION "0.0.1")
-set(sigma_BUILD_DEPENDS "rospy" "std_msgs" "geometry_msgs" "nav_msgs" "nav_core" "costmap_2d" "message_generation" "message_runtime")
-set(sigma_RUN_DEPENDS "libnova" "rospy" "std_msgs" "geometry_msgs" "nav_msgs" "nav_core" "costmap_2d" "message_generation" "message_runtime")
-set(sigma_BUILDTOOL_DEPENDS "catkin")

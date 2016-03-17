@@ -1,8 +1,0 @@
-prefix=/home/axiom/Development/sigma/catkin_ws/devel
-
-Name: sigma
-Description: Description of sigma
-Version: 0.0.1
-Cflags: 
-Libs: -L/home/axiom/Development/sigma/catkin_ws/devel/lib 
-Requires: message_runtime
