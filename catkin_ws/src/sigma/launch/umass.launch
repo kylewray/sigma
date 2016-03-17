@@ -1,0 +1,15 @@
+<?xml version="1.0" ?>
+<launch>
+  <arg name="map_name" default="$(find sigma)/maps/umass.yaml"/>
+
+  <include file="$(find sigma)/launch/rviz_nav.launch"/>
+
+  <node pkg="map_server" type="map_server" name="map_server" output="screen" args="$(arg map_name)">
+  </node>
+
+  <node pkg="sigma" type="sigma_node" name="sigma_node" output="screen">
+  </node>
+
+  <node name="rviz" pkg="rviz" type="rviz" args="-d $(find sigma)/rviz/default.rviz"/>
+</launch>
+

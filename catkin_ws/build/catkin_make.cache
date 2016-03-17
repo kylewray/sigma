@@ -1,2 +1,2 @@
-
--DCATKIN_DEVEL_PREFIX=/home/axiom/Development/sigma_approximation/catkin_ws/devel -DCMAKE_INSTALL_PREFIX=/home/axiom/Development/sigma_approximation/catkin_ws/install -G Unix Makefiles
+sigma
+-DCATKIN_DEVEL_PREFIX=/home/axiom/Development/sigma/catkin_ws/devel -DCMAKE_INSTALL_PREFIX=/home/axiom/Development/sigma/catkin_ws/install -G Unix Makefiles

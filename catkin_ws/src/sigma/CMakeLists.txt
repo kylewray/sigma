@@ -1,13 +1,21 @@
 cmake_minimum_required(VERSION 2.8.3)
 project(sigma)
 
+# Important if you want to use C++11.
+set(CMAKE_CXX_FLAGS "-std=c++11 ${CMAKE_CXX_FLAGS}")
+
 ## Find catkin macros and libraries
 ## if COMPONENTS list like find_package(catkin REQUIRED COMPONENTS xyz)
 ## is used, also find other catkin packages
 find_package(catkin REQUIRED COMPONENTS
-  roscpp
+  #roscpp
   rospy
-  stdmsgs
+  std_msgs
+  geometry_msgs
+  nav_msgs
+  nav_core
+  costmap_2d
+  message_generation
 )
 
 ## System dependencies are found with CMake's conventions
@@ -17,7 +25,7 @@ find_package(catkin REQUIRED COMPONENTS
 ## Uncomment this if the package has a setup.py. This macro ensures
 ## modules and global scripts declared therein get installed
 ## See http://ros.org/doc/api/catkin/html/user_guide/setup_dot_py.html
-# catkin_python_setup()
+catkin_python_setup()
 
 ################################################
 ## Declare ROS messages, services and actions ##
@@ -64,11 +72,13 @@ find_package(catkin REQUIRED COMPONENTS
 #   Action2.action
 # )
 
-## Generate added messages and services with any dependencies listed here
-# generate_messages(
-#   DEPENDENCIES
-#   std_msgs  # Or other packages containing msgs
-# )
+# Generate added messages and services with any dependencies listed here
+generate_messages(
+  DEPENDENCIES
+  std_msgs
+  geometry_msgs
+  nav_msgs
+)
 
 ################################################
 ## Declare ROS dynamic reconfigure parameters ##
@@ -102,7 +112,7 @@ find_package(catkin REQUIRED COMPONENTS
 catkin_package(
 #  INCLUDE_DIRS include
 #  LIBRARIES sigma
-#  CATKIN_DEPENDS roscpp rospy stdmsgs
+  CATKIN_DEPENDS message_runtime #roscpp rospy stdmsgs
 #  DEPENDS system_lib
 )
 
@@ -146,10 +156,15 @@ include_directories(
 # all install targets should use catkin DESTINATION variables
 # See http://ros.org/doc/api/catkin/html/adv_user_guide/variables.html
 
+catkin_install_python(
+  PROGRAMS scripts/sigma_node
+  DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
+)
+
 ## Mark executable scripts (Python etc.) for installation
 ## in contrast to setup.py, you can choose the destination
 # install(PROGRAMS
-#   scripts/my_python_script
+#   scripts/sigma_execute
 #   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 # )
 

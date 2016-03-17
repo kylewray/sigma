@@ -1,23 +1,23 @@
 Determining if the pthread_create exist failed with the following output:
-Change Dir: /home/axiom/Development/sigma_approximation/catkin_ws/build/CMakeFiles/CMakeTmp
+Change Dir: /home/axiom/Development/sigma/catkin_ws/build/CMakeFiles/CMakeTmp
 
-Run Build Command:/usr/bin/make "cmTryCompileExec4016619752/fast"
-/usr/bin/make -f CMakeFiles/cmTryCompileExec4016619752.dir/build.make CMakeFiles/cmTryCompileExec4016619752.dir/build
-make[1]: Entering directory `/home/axiom/Development/sigma_approximation/catkin_ws/build/CMakeFiles/CMakeTmp'
-/usr/bin/cmake -E cmake_progress_report /home/axiom/Development/sigma_approximation/catkin_ws/build/CMakeFiles/CMakeTmp/CMakeFiles 1
-Building C object CMakeFiles/cmTryCompileExec4016619752.dir/CheckSymbolExists.c.o
-/usr/bin/cc    -o CMakeFiles/cmTryCompileExec4016619752.dir/CheckSymbolExists.c.o   -c /home/axiom/Development/sigma_approximation/catkin_ws/build/CMakeFiles/CMakeTmp/CheckSymbolExists.c
-Linking C executable cmTryCompileExec4016619752
-/usr/bin/cmake -E cmake_link_script CMakeFiles/cmTryCompileExec4016619752.dir/link.txt --verbose=1
-/usr/bin/cc       CMakeFiles/cmTryCompileExec4016619752.dir/CheckSymbolExists.c.o  -o cmTryCompileExec4016619752 -rdynamic 
-CMakeFiles/cmTryCompileExec4016619752.dir/CheckSymbolExists.c.o: In function `main':
+Run Build Command:/usr/bin/make "cmTryCompileExec105641598/fast"
+/usr/bin/make -f CMakeFiles/cmTryCompileExec105641598.dir/build.make CMakeFiles/cmTryCompileExec105641598.dir/build
+make[1]: Entering directory `/home/axiom/Development/sigma/catkin_ws/build/CMakeFiles/CMakeTmp'
+/usr/bin/cmake -E cmake_progress_report /home/axiom/Development/sigma/catkin_ws/build/CMakeFiles/CMakeTmp/CMakeFiles 1
+Building C object CMakeFiles/cmTryCompileExec105641598.dir/CheckSymbolExists.c.o
+/usr/bin/cc    -o CMakeFiles/cmTryCompileExec105641598.dir/CheckSymbolExists.c.o   -c /home/axiom/Development/sigma/catkin_ws/build/CMakeFiles/CMakeTmp/CheckSymbolExists.c
+Linking C executable cmTryCompileExec105641598
+/usr/bin/cmake -E cmake_link_script CMakeFiles/cmTryCompileExec105641598.dir/link.txt --verbose=1
+/usr/bin/cc       CMakeFiles/cmTryCompileExec105641598.dir/CheckSymbolExists.c.o  -o cmTryCompileExec105641598 -rdynamic 
+CMakeFiles/cmTryCompileExec105641598.dir/CheckSymbolExists.c.o: In function `main':
 CheckSymbolExists.c:(.text+0x16): undefined reference to `pthread_create'
 collect2: error: ld returned 1 exit status
-make[1]: *** [cmTryCompileExec4016619752] Error 1
-make[1]: Leaving directory `/home/axiom/Development/sigma_approximation/catkin_ws/build/CMakeFiles/CMakeTmp'
-make: *** [cmTryCompileExec4016619752/fast] Error 2
+make[1]: *** [cmTryCompileExec105641598] Error 1
+make[1]: Leaving directory `/home/axiom/Development/sigma/catkin_ws/build/CMakeFiles/CMakeTmp'
+make: *** [cmTryCompileExec105641598/fast] Error 2
 
-File /home/axiom/Development/sigma_approximation/catkin_ws/build/CMakeFiles/CMakeTmp/CheckSymbolExists.c:
+File /home/axiom/Development/sigma/catkin_ws/build/CMakeFiles/CMakeTmp/CheckSymbolExists.c:
 /* */
 #include <pthread.h>
 
@@ -33,21 +33,21 @@ int main(int argc, char** argv)
 }
 
 Determining if the function pthread_create exists in the pthreads failed with the following output:
-Change Dir: /home/axiom/Development/sigma_approximation/catkin_ws/build/CMakeFiles/CMakeTmp
+Change Dir: /home/axiom/Development/sigma/catkin_ws/build/CMakeFiles/CMakeTmp
 
-Run Build Command:/usr/bin/make "cmTryCompileExec224777201/fast"
-/usr/bin/make -f CMakeFiles/cmTryCompileExec224777201.dir/build.make CMakeFiles/cmTryCompileExec224777201.dir/build
-make[1]: Entering directory `/home/axiom/Development/sigma_approximation/catkin_ws/build/CMakeFiles/CMakeTmp'
-/usr/bin/cmake -E cmake_progress_report /home/axiom/Development/sigma_approximation/catkin_ws/build/CMakeFiles/CMakeTmp/CMakeFiles 1
-Building C object CMakeFiles/cmTryCompileExec224777201.dir/CheckFunctionExists.c.o
-/usr/bin/cc   -DCHECK_FUNCTION_EXISTS=pthread_create   -o CMakeFiles/cmTryCompileExec224777201.dir/CheckFunctionExists.c.o   -c /usr/share/cmake-2.8/Modules/CheckFunctionExists.c
-Linking C executable cmTryCompileExec224777201
-/usr/bin/cmake -E cmake_link_script CMakeFiles/cmTryCompileExec224777201.dir/link.txt --verbose=1
-/usr/bin/cc   -DCHECK_FUNCTION_EXISTS=pthread_create    CMakeFiles/cmTryCompileExec224777201.dir/CheckFunctionExists.c.o  -o cmTryCompileExec224777201 -rdynamic -lpthreads 
+Run Build Command:/usr/bin/make "cmTryCompileExec3826982492/fast"
+/usr/bin/make -f CMakeFiles/cmTryCompileExec3826982492.dir/build.make CMakeFiles/cmTryCompileExec3826982492.dir/build
+make[1]: Entering directory `/home/axiom/Development/sigma/catkin_ws/build/CMakeFiles/CMakeTmp'
+/usr/bin/cmake -E cmake_progress_report /home/axiom/Development/sigma/catkin_ws/build/CMakeFiles/CMakeTmp/CMakeFiles 1
+Building C object CMakeFiles/cmTryCompileExec3826982492.dir/CheckFunctionExists.c.o
+/usr/bin/cc   -DCHECK_FUNCTION_EXISTS=pthread_create   -o CMakeFiles/cmTryCompileExec3826982492.dir/CheckFunctionExists.c.o   -c /usr/share/cmake-2.8/Modules/CheckFunctionExists.c
+Linking C executable cmTryCompileExec3826982492
+/usr/bin/cmake -E cmake_link_script CMakeFiles/cmTryCompileExec3826982492.dir/link.txt --verbose=1
+/usr/bin/cc   -DCHECK_FUNCTION_EXISTS=pthread_create    CMakeFiles/cmTryCompileExec3826982492.dir/CheckFunctionExists.c.o  -o cmTryCompileExec3826982492 -rdynamic -lpthreads 
 /usr/bin/ld: cannot find -lpthreads
 collect2: error: ld returned 1 exit status
-make[1]: Leaving directory `/home/axiom/Development/sigma_approximation/catkin_ws/build/CMakeFiles/CMakeTmp'
-make[1]: *** [cmTryCompileExec224777201] Error 1
-make: *** [cmTryCompileExec224777201/fast] Error 2
+make[1]: *** [cmTryCompileExec3826982492] Error 1
+make[1]: Leaving directory `/home/axiom/Development/sigma/catkin_ws/build/CMakeFiles/CMakeTmp'
+make: *** [cmTryCompileExec3826982492/fast] Error 2
 
 

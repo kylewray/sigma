@@ -1,2 +1,2 @@
 - setup-file:
-    local-name: /home/axiom/Development/sigma_approximation/catkin_ws/devel/setup.sh
+    local-name: /home/axiom/Development/sigma/catkin_ws/devel/setup.sh
