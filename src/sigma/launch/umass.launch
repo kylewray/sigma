@@ -8,6 +8,19 @@
   </node>
 
   <node pkg="sigma" type="sigma_node" name="sigma_node" output="screen">
+    <!-- <param name="grid_width" value="94" />
+    <param name="grid_height" value="31" /> -->
+    <param name="grid_width" value="3" />
+    <param name="grid_height" value="3" />
+
+    <param name="best_case_probability_of_action_success" value="0.8" />
+    <param name="penalty_for_freespace" value="0.1" />
+    <param name="number_of_beliefs_to_add" value="10000" />
+
+    <param name="sub_occupancy_grid" value="/map" />
+
+    <param name="sub_map_pose_estimate" value="/initialpose" />
+    <param name="sub_map_nav_goal" value="/move_base_simple/goal" />
   </node>
 
   <node name="rviz" pkg="rviz" type="rviz" args="-d $(find sigma)/rviz/default.rviz"/>
