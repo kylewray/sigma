@@ -344,3 +344,30 @@ class POMDP(npm.NovaPOMDP):
 
         return result
 
+    def belief_update(self, b, a, o):
+        """ Perform a belief update, given belief, action, and observation.
+
+            Parameters:
+                b   --  The current belief (numpy n-array).
+                a   --  The action (index) taken.
+                o   --  The resulting observation (index).
+
+            Returns:
+                The new belief (numpy n-array).
+        """
+
+        array_type_n_float = ct.c_float * (self.n)
+
+        b = array_type_n_float(*b.flatten())
+        a = int(a)
+        o = int(o)
+
+        bp = array_type_n_float(*np.zeros([0.0 for s in range(self.n)]).flatten())
+
+        result = npm._nova.pomdp_utilities_belief_update_cpu(self, b, a, o, bp)
+        if result != 0:
+            print("Failed to perform a belief update on the CPU.")
+            raise Exception()
+
+        return np.array([bp[s] for s in range(self.n)])
+

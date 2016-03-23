@@ -22,5 +22,27 @@
     CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 """
 
-__all__ = ["sigma_pomdp", "sigma_action_kobuki"]
+
+import rospy
+
+from sigma_package.sigma_pomdp import *
+
+
+def main():
+    rospy.init_node("sigma_pomdp_node")
+
+    sigmaPOMDP = SigmaPOMDP()
+    sigmaPOMDP.initialize()
+
+    updateRate = rospy.get_param("~update_rate", 10)
+    rate = rospy.Rate(updateRate)
+
+    while not rospy.is_shutdown():
+        sigmaPOMDP.update()
+
+        rate.sleep()
+
+
+if __name__ == "__main__":
+    main()
 

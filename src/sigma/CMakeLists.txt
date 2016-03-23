@@ -58,12 +58,13 @@ catkin_python_setup()
 #   Message2.msg
 # )
 
-## Generate services in the 'srv' folder
-# add_service_files(
-#   FILES
-#   Service1.srv
-#   Service2.srv
-# )
+# Generate services in the 'srv' folder
+add_service_files(
+  FILES
+  GetAction.srv
+  GetBelief.srv
+  UpdateBelief.srv
+)
 
 ## Generate actions in the 'action' folder
 # add_action_files(
@@ -157,7 +158,7 @@ include_directories(
 # See http://ros.org/doc/api/catkin/html/adv_user_guide/variables.html
 
 catkin_install_python(
-  PROGRAMS scripts/sigma_node
+  PROGRAMS scripts/sigma_pomdp_node scripts/sigma_action_kobuki_node
   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )
 

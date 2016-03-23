@@ -7,13 +7,15 @@
   <node pkg="map_server" type="map_server" name="map_server" output="screen" args="$(arg map_name)">
   </node>
 
-  <node pkg="sigma" type="sigma_node" name="sigma_node" output="screen">
+  <node pkg="sigma" type="sigma_pomdp_node" name="sigma_pomdp_node" output="screen">
+    <param name="update_rate" value="10" />
+
     <!-- <param name="grid_width" value="94" />
     <param name="grid_height" value="31" /> -->
     <param name="grid_width" value="3" />
     <param name="grid_height" value="3" />
 
-    <param name="best_case_probability_of_action_success" value="0.8" />
+    <param name="base_probability_of_action_success" value="0.8" />
     <param name="penalty_for_freespace" value="0.1" />
     <param name="number_of_beliefs_to_add" value="10000" />
 

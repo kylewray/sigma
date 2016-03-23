@@ -1,0 +1,5 @@
+float32 goal_delta_x
+float32 goal_delta_y
+bool bump_observed
+---
+bool success

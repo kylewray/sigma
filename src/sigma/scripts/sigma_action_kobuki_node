@@ -25,34 +25,25 @@
 
 import rospy
 
-from sigma_package.sigma_node import *
+from sigma_package.sigma_action_kobuki import *
 
 
 def main():
-    rospy.init_node("sigma_node")
+    rospy.init_node("sigma_action_kobuki_node")
 
-    sigmaNode = SigmaNode()
-    sigmaNode.initialize()
+    sigmaAction = SigmaActionKobuki()
+    sigmaAction.initialize()
 
-    updateRate = 10
+    updateRate = rospy.get_param("~update_rate", 10)
     rate = rospy.Rate(updateRate)
 
     while not rospy.is_shutdown():
-        sigmaNode.update()
+        sigmaAction.update()
 
         rate.sleep()
-
-    # Note: Spin is different in Python. In C++, we had to spinOnce because that
-    # was what enabled our services and stuff to be called; it is single-threaded.
-    # In Python, services and subscribers are automatically launched in threads.
-    # Thus, we do not need to spin! Instead, the rospy.spin() simply waits until
-    # rospy is shutdown. In other words, you can:
-    # 1. Register a service and call rospy.spin().
-    # 2. Create a while loop with rospy.is_shutdown() and a rate.sleep() to do
-    #    a periodic action.
-    #rospy.spin()
 
 
 if __name__ == "__main__":
     main()
+
 
