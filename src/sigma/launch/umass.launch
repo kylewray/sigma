@@ -1,11 +1,12 @@
 <?xml version="1.0" ?>
 <launch>
-  <arg name="map_name" default="$(find sigma)/maps/umass.yaml"/>
+  <arg name="map_name" default="$(find sigma)/maps/umass.yaml" />
 
-  <include file="$(find sigma)/launch/rviz_nav.launch"/>
+  <include file="$(find sigma)/launch/rviz_nav.launch" />
 
-  <node pkg="map_server" type="map_server" name="map_server" output="screen" args="$(arg map_name)">
-  </node>
+  <node pkg="map_server" type="map_server" name="map_server" output="screen" args="$(arg map_name)" />
+
+  <node name="rviz" pkg="rviz" type="rviz" args="-d $(find sigma)/rviz/default.rviz" />
 
   <node pkg="sigma" type="sigma_pomdp_node" name="sigma_pomdp_node" output="screen">
     <param name="update_rate" value="10" />
@@ -23,8 +24,30 @@
 
     <param name="sub_map_pose_estimate" value="/initialpose" />
     <param name="sub_map_nav_goal" value="/move_base_simple/goal" />
+
+    <param name="get_action" value="~get_action" />
+    <param name="get_belief" value="~get_belief" />
+    <param name="update_belief" value="~update_belief" />
   </node>
 
-  <node name="rviz" pkg="rviz" type="rviz" args="-d $(find sigma)/rviz/default.rviz"/>
+  <node pkg="sigma" type="sigma_action_kobuki_node" name="sigma_action_kobuki_node" output="screen">
+    <param name="sigma_pomdp_namespace" value="/sigma_pomdp_node" />
+
+    <param name="at_position_goal_threshold" value="0.05" />
+    <param name="at_theta_goal_threshold" value="0.05" />
+
+    <param name="pid_integrator_bounds" value="0.05" />
+
+    <param name="pid_theta_Kp" value="0.2" />
+    <param name="pid_theta_Ki" value="0.0" />
+    <param name="pid_theta_Kd" value="0.1" />
+
+    <param name="desired_velocity" value="0.2" />
+
+    <param name="sub_kobuki_odom" value="/odom" /> <!-- /base_pose_ground_truth from nav_msgs -->
+    <param name="sub_kobuki_bump" value="/mobile_base/sensors/bumper" />
+    <param name="pub_kobuki_vel" value="/cmd_vel" /> <!-- /mobile_base/commands/velocity from kobuki_msgs -->
+    <param name="pub_kobuki_reset_odom" value="/mobile_base/commands/reset_odometry" /> <!-- /mobile_base/commands/reset_odometry from kobuki_msgs -->
+  </node>
 </launch>
 

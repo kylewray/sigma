@@ -8,11 +8,11 @@ set(CMAKE_CXX_FLAGS "-std=c++11 ${CMAKE_CXX_FLAGS}")
 ## if COMPONENTS list like find_package(catkin REQUIRED COMPONENTS xyz)
 ## is used, also find other catkin packages
 find_package(catkin REQUIRED COMPONENTS
-  #roscpp
   rospy
   std_msgs
   geometry_msgs
   nav_msgs
+  kobuki_msgs
   nav_core
   costmap_2d
   message_generation
@@ -79,6 +79,7 @@ generate_messages(
   std_msgs
   geometry_msgs
   nav_msgs
+  kobuki_msgs
 )
 
 ################################################

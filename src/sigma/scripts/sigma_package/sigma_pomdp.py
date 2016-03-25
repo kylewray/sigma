@@ -119,19 +119,19 @@ class SigmaPOMDP(object):
                                                 SigmaPOMDP.sub_map_nav_goal,
                                                 self)
 
-        srvGetActionTopic = rospy.get_param("~get_action", "get_action")
+        srvGetActionTopic = rospy.get_param("~get_action", "~get_action")
         self.srvGetAction = rospy.Service(srvGetActionTopic,
                                                 GetAction,
                                                 SigmaPOMDP.srv_get_action,
                                                 self)
 
-        srvGetBeliefTopic = rospy.get_param("~get_belief", "get_belief")
+        srvGetBeliefTopic = rospy.get_param("~get_belief", "~get_belief")
         self.srvGetBelief = rospy.Service(srvGetBeliefTopic,
                                                 GetBelief,
                                                 SigmaPOMDP.srv_get_belief,
                                                 self)
 
-        srvUpdateBeliefTopic = rospy.get_param("~update_belief", "update_belief")
+        srvUpdateBeliefTopic = rospy.get_param("~update_belief", "~update_belief")
         self.srvUpdateBelief = rospy.Service(srvUpdateBeliefTopic,
                                                 UpdateBelief,
                                                 SigmaPOMDP.srv_update_belief,
@@ -149,7 +149,7 @@ class SigmaPOMDP(object):
         if not self.algorithmIsInitialized:
             self.initialize_algorithm()
 
-        rospy.loginfo("Info[SigmaPOMDP.update]: Updating the policy.")
+        #rospy.loginfo("Info[SigmaPOMDP.update]: Updating the policy.")
 
         # This can be NOVA_SUCCESS or NOVA_CONVERGED.
         result = npm._nova.pomdp_perseus_update_cpu(self.pomdp)
@@ -502,8 +502,8 @@ class SigmaPOMDP(object):
         value, actionIndex = self.policy.value_and_action(self.belief)
 
         # The relative goal is simply the relative location based on the "grid-ize-ation"
-        # and resolution of the map.
-        goalX, goalY = self.pomdp.actions[a]
+        # and resolution of the map. The goal theta is a bit harder to compute (estimate).
+        goalX, goalY = self.pomdp.actions[actionIndex]
 
         xSize = self.mapWidth / self.gridWidth
         ySize = self.mapHeight / self.gridHeight
@@ -511,17 +511,41 @@ class SigmaPOMDP(object):
         goalX *= xSize * self.mapResolution
         goalY *= ySize * self.mapResolution
 
-        # For the goal theta, we assume no collision at the next state, unless
-        # this is impossible.
-        observationIndex = self.pomdp.observations.index(False)
+        # Compute the most probable current state and then the most probable successor.
+        mostProbableStateIndex = self.belief.argmax()
+        mostProbableStateIndexPrime = None
+        mostProbableStateIndexPrimeValue = 0.0
 
-        # TODO: Finish this off by computing the theta at the next belief point.
-        # Note that the observation may be impossible, so check for this.. maybe use
-        # a try-catch or something.
-        valuePrime, actionIndexPrime = self.pomdp.belief_update(self.belief, a, ...
-        goalTheta = ...
+        for i in range(self.pomdp.ns):
+            sp = self.pomdp.S[mostProbableStateIndex * self.pomdp.m * self.pomdp.n +
+                              actionIndex * self.pomdp.n + i]
+            if sp < 0:
+                break
 
-        return GetActionResponse(goalX, goalY, 
+            value = self.pomdp.T[mostProbableStateIndex * self.pomdp.m * self.pomdp.n +
+                                 actionIndex * self.pomdp.n + i]
+
+            if mostProbableStateIndexPrimeValue < value:
+                mostProbableStateIndexPrime = sp
+                mostProbableStateIndexPrimeValue = value
+
+        # Now compute the most probable observation given this information. This ensures
+        # we have an observation which is actually possible to see.
+        observationIndex = 0
+        if self.pomdp.O[actionIndex * self.pomdp.n * self.pomdp.z +
+                        mostProbableStateIndexPrime * self.pomdp.z + 1] > 0.5:
+           observationIndex = 1
+
+        # Perform a belief update with this observation and compute the action there.
+        beliefPrime = self.pomdp.belief_update(self.belief, actionIndex, observationIndex)
+        valuePrime, actionIndexPrime = self.policy.value_and_action(beliefPrime)
+        goalXPrime, goalYPrime = self.pomdp.actions[actionIndexPrime]
+
+        # The goal's theta is determined from this action. Note we want the theta in [0, 2pi]
+        # so we must offset by pi because arctan2 returns in [-pi, pi].
+        goalTheta = np.arctan2(goalYPrime, goalXPrime) + np.pi
+
+        return GetActionResponse(goalX, goalY, goalTheta)
 
     @staticmethod
     def srv_get_belief(req, self):
@@ -549,17 +573,19 @@ class SigmaPOMDP(object):
                 The service response as part of UpdateBelief.
         """
 
-        actionX = np.sign(req.goal_delta_x) *
-                            float(abs(req.goal_delta_x) > SIGMA_GOAL_THRESHOLD))
-        actionY = np.sign(req.goal_delta_y) *
-                            float(abs(req.goal_delta_y) > SIGMA_GOAL_THRESHOLD))
+        # Determine which action corresponds to this goal. Do the same for the observation.
+        actionX = np.sign(req.goal_x) * float(abs(req.goal_x) > SIGMA_GOAL_THRESHOLD)
+        actionY = np.sign(req.goal_y) * float(abs(req.goal_y) > SIGMA_GOAL_THRESHOLD)
 
         actionIndex = self.pomdp.actions.index([actionX, actionY])
         observationIndex = self.pomdp.observations.index(req.bump_observed)
 
+        # Attempt to update the belief
         try:
-            self.belief = self.pomdp.belief_update(self.belief, actionIndex,
-                                                   observationIndex, bp)
+            self.belief = self.pomdp.belief_update(self.belief,
+                                                   actionIndex,
+                                                   observationIndex,
+                                                   bp)
         except:
             rospy.logerror("Error[SigmaPOMDP.srv_belief_update]: Failed to update belief.")
             return UpdateBeliefResponse(False)
