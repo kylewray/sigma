@@ -33,7 +33,7 @@ import nova.pomdp_alpha_vectors as pav
 
 import rospy
 
-#from tf.transformations import euler_from_quaternion
+from tf.transformations import euler_from_quaternion
 
 from geometry_msgs.msg import Twist
 from nav_msgs.msg import Odometry
@@ -66,6 +66,12 @@ class SigmaActionKobuki(object):
         self.goalY = 0.0
         self.goalTheta = 0.0
 
+        # These are relative-frame goal values received from a 'get_action' call. This node
+        # passes this information back to the POMDP, which resolves what action it was.
+        self.relGoalX = 0.0
+        self.relGoalY = 0.0
+        self.relGoalTheta = 0.0
+
         # This bump variable is assigned in the callback for the sensor. It is used in
         # the odometry callback to control behavior.
         self.detectedBump = False
@@ -95,6 +101,7 @@ class SigmaActionKobuki(object):
 
         # Finally, we create variables for the messages.
         self.started = False
+
         self.subKobukiOdom = None
         self.subKobukiBump = None
         self.pubKobukiVel = None
@@ -106,25 +113,46 @@ class SigmaActionKobuki(object):
             rospy.logwarn("Warn[SigmaActionKobuki.start]: Already started.")
             return
 
+        rospy.sleep(10)
+
         subKobukiOdomTopic = rospy.get_param("~sub_kobuki_odom", "/odom")
         self.subKobukiOdom = rospy.Subscriber(subKobukiOdomTopic,
                                               Odometry,
-                                              SigmaActionKobuki.sub_kobuki_odom,
-                                              self)
+                                              self.sub_kobuki_odom)
 
         subKobukiBumpTopic = rospy.get_param("~sub_kobuki_bump", "/mobile_base/sensors/bumper")
         self.subKobukiBump = rospy.Subscriber(subKobukiBumpTopic,
                                               BumperEvent,
-                                              SigmaActionKobuki.sub_kobuki_bump,
-                                              self)
+                                              self.sub_kobuki_bump)
 
         pubKobukiVelTopic = rospy.get_param("~pub_kobuki_vel", "/cmd_vel")
         self.pubKobukiVel = rospy.Publisher(pubKobukiVelTopic, Twist, queue_size=32)
 
         self.started = True
 
-    @staticmethod
-    def sub_kobuki_odom(msg, self):
+    def reset(self):
+        """ Reset all of the variables that change as the robot moves. """
+
+        self.x = 0.0
+        self.y = 0.0
+        self.theta = 0.0
+
+        self.atGoal = False
+        self.goalX = 0.0
+        self.goalY = 0.0
+        self.goalTheta = 0.0
+
+        self.relGoalX = 0.0
+        self.relGoalY = 0.0
+        self.relGoalTheta = 0.0
+
+        self.detectedBump = False
+        self.pidDerivator = 0.0
+        self.pidIntegrator = 0.0
+
+        self.started = False
+
+    def sub_kobuki_odom(self, msg):
         """ Move the robot based on the SigmaPOMDP node's action.
 
             This gets the current action, moves the robot, calls the update belief service,
@@ -133,18 +161,12 @@ class SigmaActionKobuki(object):
 
             Parameters:
                 msg     --  The Odometry message data.
-                self    --  A reference to the relevant SigmaActionKobuki object.
         """
 
-        rospy.loginfo("Info[SigmaActionKobuki]: Received odometry.")
+        self.check_reached_goal(msg)
+        self.move_to_goal(msg)
 
-        SigmaActionKobuki.check_reached_goal(msg, self)
-        rospy.loginfo("Coolness")
-        SigmaActionKobuki.move_to_goal(msg, self)
-        rospy.loginfo("Awesome")
-
-    @staticmethod
-    def check_reached_goal(msg, self):
+    def check_reached_goal(self, msg):
         """ Handle checking and reaching a goal.
 
             This means getting a new action from the SimgaPOMDP and setting variables,
@@ -152,80 +174,82 @@ class SigmaActionKobuki(object):
 
             Parameters:
                 msg     --  The Odometry message data.
-                self    --  A reference to the relevant SigmaActionKobuki object.
         """
 
         # Compute the distance to the goal given the positions.
         distanceToPositionGoal = math.sqrt(pow(self.x - self.goalX, 2) +
                                            pow(self.y - self.goalY, 2))
 
-        rospy.loginfo("Step 0")
-
         # If the robot is far from the goal, with no bump detected either, then do nothing.
-        if distanceToPositionGoal >= self.atPositionGoalThreshold and \
-                not self.detectedBump:
+        if distanceToPositionGoal >= self.atPositionGoalThreshold and not self.detectedBump:
             return
-
-        rospy.loginfo("Step 1")
 
         # However, if it is close enough to the goal, then update the belief with
         # observing a bump or not.
         rospy.wait_for_service(self.srvUpdateBeliefTopic)
-        srvUpdateBelief = rospy.ServiceProxy(self.srvUpdateBeliefTopic, UpdateBelief)
-        res = srvUpdateBelief(self.goalX, self.goalY, self.detectedBump)
-        if not res.success:
-            rospy.logerror("Error[SigmaActionKobuki.check_reached_goal]: Failed to update belief.")
+        try:
+            srvUpdateBelief = rospy.ServiceProxy(self.srvUpdateBeliefTopic, UpdateBelief)
+            res = srvUpdateBelief(self.relGoalX, self.relGoalY, self.detectedBump)
+            if not res.success:
+                rospy.logerr("Error[SigmaActionKobuki.check_reached_goal]: Failed to update belief.")
+                return
+        except rospy.ServiceException:
+            rospy.logerr("Error[SigmaActionKobuki.check_reached_goal]: Service exception when updating belief.")
             return
-
-        rospy.loginfo("Step 2")
 
         # The new 'origin' is the current pose estimates from the odometers.
         self.x = msg.pose.pose.position.x
         self.y = msg.pose.pose.position.y
+        roll, pitch, self.theta = euler_from_quaternion([msg.pose.pose.orientation.x,
+                                                         msg.pose.pose.orientation.y,
+                                                         msg.pose.pose.orientation.z,
+                                                         msg.pose.pose.orientation.w])
 
         # Now do a service request for the SigmaPOMDP to send the current action.
         rospy.wait_for_service(self.srvGetActionTopic)
-        srvGetAction = rospy.ServiceProxy(self.srvGetActionTopic, GetAction)
-        res = srvGetAction()
+        try:
+            srvGetAction = rospy.ServiceProxy(self.srvGetActionTopic, GetAction)
+            res = srvGetAction()
+        except rospy.ServiceException:
+            rospy.logerr("Error[SigmaActionKobuki.check_reached_goal]: Service exception when getting action.")
+            return
 
-        relGoalX = res.goal_x
-        relGoalY = res.goal_y
-        relGoalTheta = res.goal_theta
-
-        rospy.loginfo("Step 3")
+        rospy.logwarn("Action: [%.1f, %.1f, %.3f]" % (res.goal_x, res.goal_y, res.goal_theta))
+        self.relGoalX = res.goal_x
+        self.relGoalY = res.goal_y
+        self.relGoalTheta = res.goal_theta
 
         # We need to translate the goal location given by srvGetAction to the world-frame.
         # They are provided as a relative goal. Theta, however, is given in 'world-frame'
         # kinda, basically because it is not in the SigmaPOMDP's state space.
-        self.goalX = self.x + relGoalX
-        self.goalY = self.y + relGoalY
+        self.goalX = self.x + self.relGoalX
+        self.goalY = self.y + self.relGoalY
         self.goalTheta = np.arctan2(self.goalY - self.y, self.goalX - self.x)
 
         # Finally, reset the bump detection because we have already incorporated that
         # in the belief update above.
         self.detectedBump = False
 
-        rospy.loginfo("Step 4")
-
-    @staticmethod
-    def move_to_goal(msg, self):
+    def move_to_goal(self, msg):
         """ Move toward the goal using the relevant Kobuki messages.
 
             Parameters:
                 msg     --  The Odometry message data.
-                self    --  A reference to the relevant SigmaActionKobuki object.
         """
 
-        rospy.loginfo("Step 5")
+        # Get the updated location and orientation from the odometry message.
+        self.x = msg.pose.pose.position.x
+        self.y = msg.pose.pose.position.y
+        roll, pitch, self.theta = euler_from_quaternion([msg.pose.pose.orientation.x,
+                                                         msg.pose.pose.orientation.y,
+                                                         msg.pose.pose.orientation.z,
+                                                         msg.pose.pose.orientation.w])
 
-        #roll, pitch, self.theta = euler_from_quaternion(msg.pose.pose.orientation)
-        self.theta = 0.0
+        rospy.logwarn("[x, y, theta]: [%.4f, %.4f, %.4f]" % (self.x, self.y, self.theta))
+        rospy.logwarn("[goalX, goalY]: [%.4f, %.4f]" % (self.goalX, self.goalY))
+        rospy.logwarn("[relGoalX, relGoalY]: [%.4f, %.4f]" % (self.relGoalX, self.relGoalY))
 
         control = Twist()
-        control.linear.y = 0
-        control.linear.z = 0
-        control.angular.x = 0
-        control.angular.y = 0
 
         # If close to the goal, then do nothing. Otherwise, drive based on normal control.
         distanceToPositionGoal = math.sqrt(pow(self.x - self.goalX, 2) +
@@ -234,50 +258,41 @@ class SigmaActionKobuki(object):
             control.linear.x = 0.0
         else:
             # This assigns the desired set-point for speed in meters per second.
-            control.linear.x = self.desiredVelocity #valP + valI + valD
+            control.linear.x = self.desiredVelocity
 
-        rospy.loginfo("Step 6")
-
-        # Update the (noisy) position based on the odometers velocity estimates.
-        self.x += msg.twist.twist.x
-        self.y += msg.twist.twist.y
+        rospy.logwarn("Distance to Goal: %.4f" % (distanceToPositionGoal))
 
         # Compute the new goal theta based on the updated (noisy) location of the robot.
-        # The result is in the range [-pi, pi], so we have to cast it to [0, 2pi].
-        self.goalTheta = np.arctan2(self.goalY - self.y, self.goalX - self.x) + np.pi
+        self.goalTheta = np.arctan2(self.goalY - self.y, self.goalX - self.x)
+
+        rospy.logwarn("Goal Theta: %.4f" % (self.goalTheta))
 
         error = self.goalTheta - self.theta
         if abs(error) < self.atThetaGoalThreshold:
             control.angular.z = 0.0
         else:
-            valP = error * self.thetaKp
+            valP = error * self.pidThetaKp
 
             self.pidIntegrator += error
             self.pidIntegrator = np.clip(self.pidIntegrator,
                                          -self.pidIntegratorBounds,
                                          self.pidIntegratorBounds)
-            valI = self.pidIntegrator * self.thetaKi
+            valI = self.pidIntegrator * self.pidThetaKi
 
             self.pidDerivator = error - self.pidDerivator
             self.pidDerivator = error
-            valD = self.pidDerivator * self.thetaKd
+            valD = self.pidDerivator * self.pidThetaKd
 
             # This assigns the desired set-point for relative angle.
             control.angular.z = valP + valI + valD
 
-        rospy.loginfo("Step 7")
-
         self.pubKobukiVel.publish(control)
 
-        rospy.loginfo("Step 8")
-
-    @staticmethod
-    def sub_kobuki_bump(msg, self):
+    def sub_kobuki_bump(self, msg):
         """ This method checks for sensing a bump.
 
             Parameters:
                 msg     --  The BumperEvent message data.
-                self    --  A reference to the relevant SigmaActionKobuki object.
         """
 
         self.detectedBump = (msg.state == BumperEvent.PRESSED)

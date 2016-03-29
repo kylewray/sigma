@@ -56,9 +56,11 @@ class SigmaPOMDP(object):
     def __init__(self):
         """ The constructor for the SigmaPOMDP class. """
 
-        # The POMDP and other related information.
+        # The POMDP and other related information. Note: ctypes pointer (policy) is 'False' if null. Otherwise,
+        # we can call policy.contents to dereference the pointer.
         self.pomdp = POMDP()
-        self.policy = ct.POINTER(pav.POMDPAlphaVectors)()
+        self.policyPointer = ct.POINTER(pav.POMDPAlphaVectors)()
+        self.policy = None
         self.belief = None
 
         self.initialBeliefIsSet = False
@@ -104,38 +106,32 @@ class SigmaPOMDP(object):
         subOccupancyGridTopic = rospy.get_param("~sub_occupancy_grid", "/map")
         self.subOccupancyGrid = rospy.Subscriber(subOccupancyGridTopic,
                                                 OccupancyGrid,
-                                                 SigmaPOMDP.sub_occupancy_grid,
-                                                self)
+                                                self.sub_occupancy_grid)
 
         subMapPoseEstimateTopic = rospy.get_param("~sub_map_pose_estimate", "/initialpose")
         self.subMapPoseEstimate = rospy.Subscriber(subMapPoseEstimateTopic,
                                                 PoseWithCovarianceStamped,
-                                                SigmaPOMDP.sub_map_pose_estimate,
-                                                self)
+                                                self.sub_map_pose_estimate)
 
         subMapNavGoalTopic = rospy.get_param("~sub_map_nav_goal", "/move_base_simple/goal")
         self.subMapNavGoal = rospy.Subscriber(subMapNavGoalTopic,
                                                 PoseStamped,
-                                                SigmaPOMDP.sub_map_nav_goal,
-                                                self)
+                                                self.sub_map_nav_goal)
 
         srvGetActionTopic = rospy.get_param("~get_action", "~get_action")
         self.srvGetAction = rospy.Service(srvGetActionTopic,
                                                 GetAction,
-                                                SigmaPOMDP.srv_get_action,
-                                                self)
+                                                self.srv_get_action)
 
         srvGetBeliefTopic = rospy.get_param("~get_belief", "~get_belief")
         self.srvGetBelief = rospy.Service(srvGetBeliefTopic,
                                                 GetBelief,
-                                                SigmaPOMDP.srv_get_belief,
-                                                self)
+                                                self.srv_get_belief)
 
         srvUpdateBeliefTopic = rospy.get_param("~update_belief", "~update_belief")
         self.srvUpdateBelief = rospy.Service(srvUpdateBeliefTopic,
                                                 UpdateBelief,
-                                                SigmaPOMDP.srv_update_belief,
-                                                self)
+                                                self.srv_update_belief)
 
     def update(self):
         """ Update the SigmaPOMDP object. """
@@ -152,7 +148,7 @@ class SigmaPOMDP(object):
         #rospy.loginfo("Info[SigmaPOMDP.update]: Updating the policy.")
 
         # This can be NOVA_SUCCESS or NOVA_CONVERGED.
-        result = npm._nova.pomdp_perseus_update_cpu(self.pomdp)
+        result = npm._nova.pomdp_pbvi_update_cpu(self.pomdp)
 
     def initialize_algorithm(self):
         """ Initialize the POMDP algorithm. """
@@ -170,9 +166,9 @@ class SigmaPOMDP(object):
 
         rospy.loginfo("Info[SigmaPOMDP.initialize_algorithm]: Initializing the algorithm.")
 
-        result = npm._nova.pomdp_perseus_initialize_cpu(self.pomdp, initialGamma)
+        result = npm._nova.pomdp_pbvi_initialize_cpu(self.pomdp, initialGamma)
         if result != 0:
-            rospy.logerror("Error[SigmaPOMDP.initialize_algorithm]: Failed to initialize algorithm.")
+            rospy.logerr("Error[SigmaPOMDP.initialize_algorithm]: Failed to initialize algorithm.")
             return
 
         self.algorithmIsInitialized = True
@@ -186,22 +182,21 @@ class SigmaPOMDP(object):
 
         rospy.loginfo("Info[SigmaPOMDP.uninitialize_algorithm]: Uninitializing the algorithm.")
 
+        self.policyPointer = ct.POINTER(pav.POMDPAlphaVectors)()
         self.policy = None
 
-        result = npm._nova.pomdp_perseus_uninitialize_cpu(self.pomdp)
+        result = npm._nova.pomdp_pbvi_uninitialize_cpu(self.pomdp)
         if result != 0:
             rospy.logwarn("Warn[SigmaPOMDP.uninitialize_algorithm]: Failed to uninitialize algorithm.")
 
         self.algorithmIsInitialized = False
 
-    @staticmethod
-    def map_to_world(mx, my, self):
+    def map_to_world(self, mx, my):
         """ Convert map coordinates (integers) to world coordinates (offset, resolution, floats).
 
             Parameters:
                 mx      --  The map x coordinate.
                 my      --  The map y coordinate.
-                self    --  A reference to the relevant SigmaPOMDP object.
 
             Returns:
                 wx      --  The resultant world x coordinate. This is the center of the grid cell.
@@ -216,8 +211,7 @@ class SigmaPOMDP(object):
 
         return wx, wy
 
-    @staticmethod
-    def world_to_map(wx, wy, self):
+    def world_to_map(self, wx, wy):
         """ Convert world coordinates (offset, resolution, floats) to map coordinates (integers).
 
             Parameters:
@@ -249,14 +243,12 @@ class SigmaPOMDP(object):
 
         return mx, my
 
-    @staticmethod
-    def sub_occupancy_grid(msg, self):
+    def sub_occupancy_grid(self, msg):
         """ A subscriber handler for OccupancyGrid messages. This converges any 2d map
             into a set of POMDP states. This is a static method to work as a ROS callback.
 
             Parameters:
                 msg     --  The OccupancyGrid message data.
-                self    --  A reference to the relevant SigmaPOMDP object.
         """
 
         rospy.loginfo("Info[SigmaPOMDP.sub_occupancy_grid]: Received map. Creating a new POMDP.")
@@ -283,6 +275,7 @@ class SigmaPOMDP(object):
         self.pomdp.n = len(self.pomdp.states)
 
         self.pomdp.actions = list(it.product([-1, 0, 1], [-1, 0, 1]))
+        #self.pomdp.actions.remove((0, 0))
         self.pomdp.m = len(self.pomdp.actions)
 
         self.pomdp.observations = list([False, True])
@@ -325,6 +318,12 @@ class SigmaPOMDP(object):
             for a, action in enumerate(self.pomdp.actions):
                 # First off, if the action is (0, 0) (i.e., no movement), then it automatically succeeds.
                 if action == (0, 0):
+                    S[s][a][0] = s
+                    T[s][a][0] = 1.0
+                    continue
+
+                # Second off, if the agent is *in* an obstacle, then self-loop.
+                if self.stateObstaclePercentage[state] == 1.0:
                     S[s][a][0] = s
                     T[s][a][0] = 1.0
                     continue
@@ -398,15 +397,13 @@ class SigmaPOMDP(object):
         #print(np.array(T))
         #print(np.array(O))
 
-    @staticmethod
-    def sub_map_pose_estimate(msg, self):
+    def sub_map_pose_estimate(self, msg):
         """ A subscriber handler for PoseWithCovarianceStamped messages. This is when an initial
             pose is assigned, inducing an initial belief. This is a static method to work as a
             ROS callback.
 
             Parameters:
                 msg     --  The PoseWithCovarianceStamped message data.
-                self    --  A reference to the relevant SigmaPOMDP object.
         """
 
         if self.pomdp is None:
@@ -414,7 +411,7 @@ class SigmaPOMDP(object):
             return
 
         try:
-            gridPoseEstimateX, gridPoseEstimateY = SigmaPOMDP.world_to_map(msg.pose.pose.position.x, msg.pose.pose.position.y, self)
+            gridPoseEstimateX, gridPoseEstimateY = self.world_to_map(msg.pose.pose.position.x, msg.pose.pose.position.y)
             sInitialBelief = self.pomdp.states.index((gridPoseEstimateX, gridPoseEstimateY))
         except Exception:
             rospy.logwarn("Warn[SigmaPOMDP.sub_map_pose_estimate]: Pose estimate position is outside of map bounds.")
@@ -422,9 +419,24 @@ class SigmaPOMDP(object):
 
         rospy.loginfo("Info[SigmaPOMDP.sub_map_pose_estimate]: Received pose estimate. Assigning POMDP initial beliefs.")
 
-        # The seed belief is simply a collapsed belief on this initial pose.
-        Z = [[sInitialBelief]]
-        B = [[1.0]]
+        # Random Version: The seed belief is simply a collapsed belief on this initial pose.
+        #Z = [[sInitialBelief]]
+        #B = [[1.0]]
+
+        #self.pomdp.r = len(B)
+        #self.pomdp.rz = 1
+
+        #array_type_rrz_int = ct.c_int * (self.pomdp.r * self.pomdp.rz)
+        #array_type_rrz_float = ct.c_float * (self.pomdp.r * self.pomdp.rz)
+
+        #self.pomdp.Z = array_type_rrz_int(*np.array(Z).flatten())
+        #self.pomdp.B = array_type_rrz_float(*np.array(B).flatten())
+
+        #self.pomdp.expand(method='random', numBeliefsToAdd=self.numberOfBeliefsToAdd)
+
+        # Intelligent Version: Assign the belief to be intelligently spread over each state.
+        Z = [[s] for s in range(self.pomdp.n)]
+        B = [[1.0] for s in range(self.pomdp.n)]
 
         self.pomdp.r = len(B)
         self.pomdp.rz = 1
@@ -435,20 +447,17 @@ class SigmaPOMDP(object):
         self.pomdp.Z = array_type_rrz_int(*np.array(Z).flatten())
         self.pomdp.B = array_type_rrz_float(*np.array(B).flatten())
 
-        self.pomdp.expand(method='random', numBeliefsToAdd=self.numberOfBeliefsToAdd)
-
+        # Set the initial belief to be collapsed at the correct location.
         self.belief = np.array([float(s == sInitialBelief) for s in range(self.pomdp.n)])
 
         self.initialBeliefIsSet = True
 
-    @staticmethod
-    def sub_map_nav_goal(msg, self):
+    def sub_map_nav_goal(self, msg):
         """ A subscriber handler for PoseStamped messages. This is called when a goal is provided,
             assigning the rewards for the POMDP. This is a static method to work as a ROS callback.
 
             Parameters:
                 msg     --  The OccupancyGrid message data.
-                self    --  A reference to the relevant SigmaPOMDP object.
         """
 
         if self.pomdp is None:
@@ -456,7 +465,7 @@ class SigmaPOMDP(object):
             return
 
         try:
-            gridGoalX, gridGoalY = SigmaPOMDP.world_to_map(msg.pose.position.x, msg.pose.position.y, self)
+            gridGoalX, gridGoalY = self.world_to_map(msg.pose.position.x, msg.pose.position.y)
             sGoal = self.pomdp.states.index((gridGoalX, gridGoalY))
         except Exception:
             rospy.logwarn("Warn[SigmaPOMDP.sub_map_nav_goal]: Goal position is outside of map bounds.")
@@ -468,10 +477,10 @@ class SigmaPOMDP(object):
 
         for s, state in enumerate(self.pomdp.states):
             for a, action in enumerate(self.pomdp.actions):
-                if gridGoalX == state[0] and gridGoalY == state[1]:
+                if gridGoalX == state[0] and gridGoalY == state[1] and action == (0, 0):
                     R[s][a] = 0.0
                 else:
-                    R[s][a] = min(-self.penaltyForFreespace, -self.stateObstaclePercentage[state])
+                    R[s][a] = -1.0 #min(-self.penaltyForFreespace, -self.stateObstaclePercentage[state])
 
         self.pomdp.Rmax = np.array(R).max()
         self.pomdp.Rmin = np.array(R).min()
@@ -480,26 +489,41 @@ class SigmaPOMDP(object):
 
         self.pomdp.R = array_type_nm_float(*np.array(R).flatten())
 
+        self.uninitialize_algorithm()
+        self.initialize_algorithm()
+
+        print(self.pomdp)
+
         self.goalIsSet = True
 
         #print(np.array(R))
 
-    @staticmethod
-    def srv_get_action(req, self):
+    def srv_get_action(self, req):
         """ This service returns an action based on the current belief.
 
             Parameters:
                 req     --  The service request as part of GetAction.
-                self    --  A reference to the relevant SigmaPOMDP object.
 
             Returns:
                 The service response as part of GetAction.
         """
 
-        if self.policy is None or self.belief is None:
+        if self.pomdp is None or self.belief is None:
             return GetActionResponse(0.0, 0.0, 0.0)
 
+        # Reset the policy so we can get the newest one.
+        self.policyPointer = ct.POINTER(pav.POMDPAlphaVectors)()
+        self.policy = None
+
+        result = npm._nova.pomdp_pbvi_get_policy_cpu(self.pomdp, ct.byref(self.policyPointer))
+        if result != 0:
+            rospy.logerr("Error[SigmaPOMDP.srv_get_action]: Could not get policy.")
+            return GetActionResponse(0.0, 0.0, 0.0)
+
+        self.policy = self.policyPointer.contents
+
         value, actionIndex = self.policy.value_and_action(self.belief)
+        actionIndex = int(actionIndex)
 
         # The relative goal is simply the relative location based on the "grid-ize-ation"
         # and resolution of the map. The goal theta is a bit harder to compute (estimate).
@@ -511,84 +535,104 @@ class SigmaPOMDP(object):
         goalX *= xSize * self.mapResolution
         goalY *= ySize * self.mapResolution
 
-        # Compute the most probable current state and then the most probable successor.
-        mostProbableStateIndex = self.belief.argmax()
-        mostProbableStateIndexPrime = None
-        mostProbableStateIndexPrimeValue = 0.0
+        # TODO: The code below is untested, but probably works. For now, just ignore theta.
+        goalTheta = 0.0 # THIS IS A DEBUG LINE
 
-        for i in range(self.pomdp.ns):
-            sp = self.pomdp.S[mostProbableStateIndex * self.pomdp.m * self.pomdp.n +
-                              actionIndex * self.pomdp.n + i]
-            if sp < 0:
-                break
+        for y in range(self.gridHeight):
+            string = ""
+            for x in range(self.gridWidth):
+                string += "%.2f " % (self.belief[self.pomdp.states.index((x, self.gridHeight - 1 - y))])
+            print(string)
 
-            value = self.pomdp.T[mostProbableStateIndex * self.pomdp.m * self.pomdp.n +
-                                 actionIndex * self.pomdp.n + i]
+        ## Compute the most probable current state and then the most probable successor.
+        #mostProbableStateIndex = self.belief.argmax()
+        #mostProbableStateIndexPrime = None
+        #mostProbableStateIndexPrimeValue = 0.0
 
-            if mostProbableStateIndexPrimeValue < value:
-                mostProbableStateIndexPrime = sp
-                mostProbableStateIndexPrimeValue = value
+        #for i in range(self.pomdp.ns):
+        #    sp = self.pomdp.S[mostProbableStateIndex * self.pomdp.m * self.pomdp.n +
+        #                      actionIndex * self.pomdp.n + i]
+        #    if sp < 0:
+        #        break
 
-        # Now compute the most probable observation given this information. This ensures
-        # we have an observation which is actually possible to see.
-        observationIndex = 0
-        if self.pomdp.O[actionIndex * self.pomdp.n * self.pomdp.z +
-                        mostProbableStateIndexPrime * self.pomdp.z + 1] > 0.5:
-           observationIndex = 1
+        #    value = self.pomdp.T[mostProbableStateIndex * self.pomdp.m * self.pomdp.n +
+        #                         actionIndex * self.pomdp.n + i]
 
-        # Perform a belief update with this observation and compute the action there.
-        beliefPrime = self.pomdp.belief_update(self.belief, actionIndex, observationIndex)
-        valuePrime, actionIndexPrime = self.policy.value_and_action(beliefPrime)
-        goalXPrime, goalYPrime = self.pomdp.actions[actionIndexPrime]
+        #    if mostProbableStateIndexPrimeValue < value:
+        #        mostProbableStateIndexPrime = sp
+        #        mostProbableStateIndexPrimeValue = value
 
-        # The goal's theta is determined from this action. Note we want the theta in [0, 2pi]
-        # so we must offset by pi because arctan2 returns in [-pi, pi].
-        goalTheta = np.arctan2(goalYPrime, goalXPrime) + np.pi
+        ## Now compute the most probable observation given this information. This ensures
+        ## we have an observation which is actually possible to see.
+        #observationIndex = 0
+        #if self.pomdp.O[actionIndex * self.pomdp.n * self.pomdp.z +
+        #                mostProbableStateIndexPrime * self.pomdp.z + 1] > 0.5:
+        #   observationIndex = 1
+
+        ## Perform a belief update with this observation and compute the action there.
+        #beliefPrime = self.pomdp.belief_update(self.belief, actionIndex, observationIndex)
+        #valuePrime, actionIndexPrime = self.policy.value_and_action(beliefPrime)
+        #goalXPrime, goalYPrime = self.pomdp.actions[actionIndexPrime]
+
+        ## The goal's theta is determined from this action. Note we want the theta in [0, 2pi]
+        ## so we must offset by pi because arctan2 returns in [-pi, pi].
+        #goalTheta = np.arctan2(goalYPrime, goalXPrime) + np.pi
 
         return GetActionResponse(goalX, goalY, goalTheta)
 
-    @staticmethod
-    def srv_get_belief(req, self):
+    def srv_get_belief(self, req):
         """ This service returns the current belief.
 
             Parameters:
                 req     --  The service request as part of GetBelief.
-                self    --  A reference to the relevant SigmaPOMDP object.
 
             Returns:
                 The service response as part of GetBelief.
         """
 
+        if self.pomdp is None or self.belief is None:
+            return GetBeliefResponse(list())
+
         return GetBeliefResponse(self.belief.tolist())
 
-    @staticmethod
-    def srv_update_belief(req, self):
+    def srv_update_belief(self, req):
         """ This service updates the belief based on a given action and observation.
 
             Parameters:
                 req     --  The service request as part of UpdateBelief.
-                self    --  A reference to the relevant SigmaPOMDP object.
 
             Returns:
                 The service response as part of UpdateBelief.
         """
 
+        if self.pomdp is None or self.belief is None:
+            return UpdateBeliefResponse(False)
+
         # Determine which action corresponds to this goal. Do the same for the observation.
-        actionX = np.sign(req.goal_x) * float(abs(req.goal_x) > SIGMA_GOAL_THRESHOLD)
-        actionY = np.sign(req.goal_y) * float(abs(req.goal_y) > SIGMA_GOAL_THRESHOLD)
+        actionX = int(np.sign(req.goal_x) * float(abs(req.goal_x) > SIGMA_GOAL_THRESHOLD))
+        actionY = int(np.sign(req.goal_y) * float(abs(req.goal_y) > SIGMA_GOAL_THRESHOLD))
+        action = (actionX, actionY)
 
-        actionIndex = self.pomdp.actions.index([actionX, actionY])
-        observationIndex = self.pomdp.observations.index(req.bump_observed)
+        try:
+            actionIndex = self.pomdp.actions.index(action)
+        except ValueError:
+            rospy.logerr("Error[SigmaPOMDP.srv_belief_update]: Invalid action given: [%i, %i]." % (actionX, actionY))
+            return UpdateBeliefResponse(False)
 
-        # Attempt to update the belief
+        try:
+            observationIndex = self.pomdp.observations.index(req.bump_observed)
+        except ValueError:
+            rospy.logerr("Error[SigmaPOMDP.srv_belief_update]: Invalid observation given.")
+            return UpdateBeliefResponse(False)
+
+        # Attempt to update the belief.
         try:
             self.belief = self.pomdp.belief_update(self.belief,
                                                    actionIndex,
-                                                   observationIndex,
-                                                   bp)
+                                                   observationIndex)
         except:
-            rospy.logerror("Error[SigmaPOMDP.srv_belief_update]: Failed to update belief.")
+            rospy.logerr("Error[SigmaPOMDP.srv_belief_update]: Failed to update belief.")
             return UpdateBeliefResponse(False)
 
-        return UpdateBeliefReponse(True)
+        return UpdateBeliefResponse(True)
 

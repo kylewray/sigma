@@ -1,6 +1,6 @@
 <?xml version="1.0" ?>
 <launch>
-  <arg name="map_name" default="$(find sigma)/maps/umass.yaml" />
+  <arg name="map_name" default="$(find sigma)/maps/simple.yaml" />
 
   <include file="$(find sigma)/launch/rviz_nav.launch" />
 
@@ -11,14 +11,12 @@
   <node pkg="sigma" type="sigma_pomdp_node" name="sigma_pomdp_node" output="screen">
     <param name="update_rate" value="10" />
 
-    <!-- <param name="grid_width" value="94" />
-    <param name="grid_height" value="31" /> -->
-    <param name="grid_width" value="18" />
-    <param name="grid_height" value="6" />
+    <param name="grid_width" value="5" />
+    <param name="grid_height" value="5" />
 
     <param name="base_probability_of_action_success" value="0.9" />
     <param name="penalty_for_freespace" value="0.05" />
-    <param name="number_of_beliefs_to_add" value="10000" />
+    <param name="number_of_beliefs_to_add" value="1000" />
 
     <param name="sub_occupancy_grid" value="/map" />
 
