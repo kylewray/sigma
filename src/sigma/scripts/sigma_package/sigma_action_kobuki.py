@@ -200,10 +200,11 @@ class SigmaActionKobuki(object):
         # The new 'origin' is the current pose estimates from the odometers.
         self.x = msg.pose.pose.position.x
         self.y = msg.pose.pose.position.y
-        roll, pitch, self.theta = euler_from_quaternion([msg.pose.pose.orientation.x,
-                                                         msg.pose.pose.orientation.y,
-                                                         msg.pose.pose.orientation.z,
-                                                         msg.pose.pose.orientation.w])
+        roll, pitch, yaw = euler_from_quaternion([msg.pose.pose.orientation.x,
+                                                  msg.pose.pose.orientation.y,
+                                                  msg.pose.pose.orientation.z,
+                                                  msg.pose.pose.orientation.w])
+        self.theta = yaw
 
         # Now do a service request for the SigmaPOMDP to send the current action.
         rospy.wait_for_service(self.srvGetActionTopic)
@@ -214,7 +215,7 @@ class SigmaActionKobuki(object):
             rospy.logerr("Error[SigmaActionKobuki.check_reached_goal]: Service exception when getting action.")
             return
 
-        rospy.logwarn("Action: [%.1f, %.1f, %.3f]" % (res.goal_x, res.goal_y, res.goal_theta))
+        #rospy.logwarn("Action: [%.1f, %.1f, %.3f]" % (res.goal_x, res.goal_y, res.goal_theta))
         self.relGoalX = res.goal_x
         self.relGoalY = res.goal_y
         self.relGoalTheta = res.goal_theta
@@ -240,14 +241,15 @@ class SigmaActionKobuki(object):
         # Get the updated location and orientation from the odometry message.
         self.x = msg.pose.pose.position.x
         self.y = msg.pose.pose.position.y
-        roll, pitch, self.theta = euler_from_quaternion([msg.pose.pose.orientation.x,
-                                                         msg.pose.pose.orientation.y,
-                                                         msg.pose.pose.orientation.z,
-                                                         msg.pose.pose.orientation.w])
+        roll, pitch, yaw = euler_from_quaternion([msg.pose.pose.orientation.x,
+                                                  msg.pose.pose.orientation.y,
+                                                  msg.pose.pose.orientation.z,
+                                                  msg.pose.pose.orientation.w])
+        self.theta = yaw
 
-        rospy.logwarn("[x, y, theta]: [%.4f, %.4f, %.4f]" % (self.x, self.y, self.theta))
-        rospy.logwarn("[goalX, goalY]: [%.4f, %.4f]" % (self.goalX, self.goalY))
-        rospy.logwarn("[relGoalX, relGoalY]: [%.4f, %.4f]" % (self.relGoalX, self.relGoalY))
+        #rospy.logwarn("[x, y, theta]: [%.4f, %.4f, %.4f]" % (self.x, self.y, self.theta))
+        #rospy.logwarn("[goalX, goalY]: [%.4f, %.4f]" % (self.goalX, self.goalY))
+        #rospy.logwarn("[relGoalX, relGoalY]: [%.4f, %.4f]" % (self.relGoalX, self.relGoalY))
 
         control = Twist()
 
@@ -260,14 +262,21 @@ class SigmaActionKobuki(object):
             # This assigns the desired set-point for speed in meters per second.
             control.linear.x = self.desiredVelocity
 
-        rospy.logwarn("Distance to Goal: %.4f" % (distanceToPositionGoal))
+        #rospy.logwarn("Distance to Goal: %.4f" % (distanceToPositionGoal))
 
         # Compute the new goal theta based on the updated (noisy) location of the robot.
         self.goalTheta = np.arctan2(self.goalY - self.y, self.goalX - self.x)
 
-        rospy.logwarn("Goal Theta: %.4f" % (self.goalTheta))
+        #rospy.logwarn("Goal Theta: %.4f" % (self.goalTheta))
 
         error = self.goalTheta - self.theta
+        if error > math.pi:
+            self.goalTheta -= 2.0 * math.pi
+            error -= 2.0 * math.pi
+        if error < -math.pi:
+            self.goalTheta += 2.0 * math.pi
+            error += 2.0 * math.pi
+
         if abs(error) < self.atThetaGoalThreshold:
             control.angular.z = 0.0
         else:

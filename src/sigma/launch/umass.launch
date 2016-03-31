@@ -18,7 +18,8 @@
 
     <param name="base_probability_of_action_success" value="0.9" />
     <param name="penalty_for_freespace" value="0.05" />
-    <param name="number_of_beliefs_to_add" value="10000" />
+    <!-- <param name="number_of_beliefs_to_add" value="10000" /> -->
+    <param name="number_of_belief_expansions" value="1" />
 
     <param name="sub_occupancy_grid" value="/map" />
 
@@ -28,6 +29,10 @@
     <param name="get_action" value="~get_action" />
     <param name="get_belief" value="~get_belief" />
     <param name="update_belief" value="~update_belief" />
+
+    <param name="visualize_belief" value="True" />
+    <param name="visualization_marker" value="~visualization_marker" />
+    <param name="visualization_marker_array" value="~visualization_marker_array" />
   </node>
 
   <node pkg="sigma" type="sigma_action_kobuki_node" name="sigma_action_kobuki_node" output="screen">
@@ -42,7 +47,7 @@
 
     <param name="pid_theta_Kp" value="0.6" />
     <param name="pid_theta_Ki" value="0.1" />
-    <param name="pid_theta_Kd" value="0.3" />
+    <param name="pid_theta_Kd" value="0.5" />
 
     <param name="desired_velocity" value="0.2" />
 

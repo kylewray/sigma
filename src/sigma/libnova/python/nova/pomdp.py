@@ -362,7 +362,7 @@ class POMDP(npm.NovaPOMDP):
         a = int(a)
         o = int(o)
 
-        bp = array_type_n_float(*np.zeros([0.0 for s in range(self.n)]).flatten())
+        bp = array_type_n_float(*np.zeros(self.n).flatten())
 
         result = npm._nova.pomdp_utilities_belief_update_cpu(self, b, a, o, bp)
         if result != 0:

@@ -37,6 +37,8 @@ import rospy
 from nav_msgs.msg import OccupancyGrid
 from geometry_msgs.msg import PoseWithCovarianceStamped
 from geometry_msgs.msg import PoseStamped
+from visualization_msgs.msg import Marker
+from visualization_msgs.msg import MarkerArray
 
 from sigma.srv import *
 
@@ -71,7 +73,8 @@ class SigmaPOMDP(object):
 
         self.baseProbabilityOfActionSuccess = rospy.get_param("~base_probability_of_action_success", 0.8)
         self.penaltyForFreespace = rospy.get_param("~penalty_for_freespace", 0.1)
-        self.numberOfBeliefsToAdd = rospy.get_param("~number_of_beliefs_to_add", 10000)
+        #self.numberOfBeliefsToAdd = rospy.get_param("~number_of_beliefs_to_add", 10000)
+        self.numberOfBeliefExpansions = rospy.get_param("~number_of_belief_expansions", 2)
 
         # Information about the map for use by a path follower once our paths are published.
         self.mapWidth = 0
@@ -93,6 +96,11 @@ class SigmaPOMDP(object):
         self.srvGetAction = None
         self.srvGetBelief = None
         self.srvUpdateBelief = None
+
+        # Finally, this optionally can publish markers to a topic, allowing for a visualization of the belief.
+        self.visualizeBelief = rospy.get_param("~visualize_belief", False)
+        self.pubMarker = None
+        self.pubMarkerArray = None
 
     def __del__(self):
         """ The deconstructor for the SigmaPOMDP class. """
@@ -132,6 +140,14 @@ class SigmaPOMDP(object):
         self.srvUpdateBelief = rospy.Service(srvUpdateBeliefTopic,
                                                 UpdateBelief,
                                                 self.srv_update_belief)
+
+        pubVisualizationMarkerTopic = rospy.get_param("~visualization_marker",
+                                                      "~visualization_marker")
+        self.pubMarker = rospy.Publisher(pubVisualizationMarkerTopic, Marker, queue_size=1000)
+
+        pubVisualizationMarkerArrayTopic = rospy.get_param("~visualization_marker_array",
+                                                           "~visualization_marker_array")
+        self.pubMarkerArray = rospy.Publisher(pubVisualizationMarkerArrayTopic, MarkerArray, queue_size=32)
 
     def update(self):
         """ Update the SigmaPOMDP object. """
@@ -191,6 +207,60 @@ class SigmaPOMDP(object):
 
         self.algorithmIsInitialized = False
 
+    def visualize_belief(self):
+        """ Visualize the belief, if desired, by publishing markers. """
+
+        if self.visualizeBelief != True or self.pomdp is None or self.belief is None:
+            return
+
+        #rospy.loginfo("Info[SigmaPOMDP.visualize_belief]: Starting to place markers.")
+
+        marker = Marker()
+        marker.header.frame_id = "map" #subOccupancyGridTopic
+        marker.header.stamp = rospy.get_rostime()
+        marker.ns = "Sigma POMDP Belief"
+        marker.id = 0
+        marker.action = 3 #Marker.DELETEALL
+
+        self.pubMarker.publish(marker)
+
+        markerArray = list()
+
+        for s, state in enumerate(self.pomdp.states):
+            marker = Marker()
+
+            marker.header.frame_id = "map" #subOccupancyGridTopic
+            marker.header.stamp = rospy.get_rostime()
+            marker.ns = "Sigma POMDP Belief"
+            marker.id = s
+            marker.type = 1 #Marker.CUBE
+            marker.action = 0 #Marker.ADD
+
+            x, y = self.map_to_world(state[0] + 0.5, state[1] + 0.5)
+            marker.pose.position.x = x
+            marker.pose.position.y = y
+            marker.pose.position.z = 0.1
+
+            marker.pose.orientation.x = 0.0
+            marker.pose.orientation.y = 0.0
+            marker.pose.orientation.z = 0.0
+            marker.pose.orientation.w = 1.0
+
+            marker.scale.x = self.mapResolution * self.mapWidth / self.gridWidth
+            marker.scale.y = self.mapResolution * self.mapHeight / self.gridHeight
+            marker.scale.z = 0.1
+
+            marker.color.a = 0.25
+            marker.color.r = self.belief[s]
+            marker.color.g = 0.0
+            marker.color.b = 0.0
+
+            markerArray += [marker]
+
+        self.pubMarkerArray.publish(markerArray)
+
+        #rospy.loginfo("Info[SigmaPOMDP.visualize_belief]: Completed placing markers.")
+
     def map_to_world(self, mx, my):
         """ Convert map coordinates (integers) to world coordinates (offset, resolution, floats).
 
@@ -203,11 +273,14 @@ class SigmaPOMDP(object):
                 wy      --  The resultant world y coordinate. This is the center of the grid cell.
         """
 
+        xSize = self.mapWidth / self.gridWidth
+        ySize = self.mapHeight / self.gridHeight
+
+        mx *= xSize
+        my *= ySize
+
         wx = self.mapOriginX + mx * self.mapResolution
         wy = self.mapOriginY + my * self.mapResolution
-
-        wx = wx * self.gridWidth + self.gridWidth / 2.0
-        wy = wy * self.gridHeight + self.gridHeight / 2.0
 
         return wx, wy
 
@@ -447,8 +520,17 @@ class SigmaPOMDP(object):
         self.pomdp.Z = array_type_rrz_int(*np.array(Z).flatten())
         self.pomdp.B = array_type_rrz_float(*np.array(B).flatten())
 
+        for i in range(self.numberOfBeliefExpansions):
+            rospy.loginfo("Info[SigmaPOMDP.sub_map_pose_estimate]: Starting expansion %i." % (i + 1))
+            self.pomdp.expand(method='distinct_beliefs')
+
+        rospy.loginfo("Info[SigmaPOMDP.sub_map_pose_estimate]: Completed expansions.")
+
         # Set the initial belief to be collapsed at the correct location.
         self.belief = np.array([float(s == sInitialBelief) for s in range(self.pomdp.n)])
+
+        # Optionally, visualize the belief.
+        self.visualize_belief()
 
         self.initialBeliefIsSet = True
 
@@ -479,6 +561,8 @@ class SigmaPOMDP(object):
             for a, action in enumerate(self.pomdp.actions):
                 if gridGoalX == state[0] and gridGoalY == state[1] and action == (0, 0):
                     R[s][a] = 0.0
+                elif self.stateObstaclePercentage[state] >= 0.8:
+                    R[s][a] = -10000.0
                 else:
                     R[s][a] = -1.0 #min(-self.penaltyForFreespace, -self.stateObstaclePercentage[state])
 
@@ -492,11 +576,10 @@ class SigmaPOMDP(object):
         self.uninitialize_algorithm()
         self.initialize_algorithm()
 
-        print(self.pomdp)
-
         self.goalIsSet = True
 
         #print(np.array(R))
+        #print(self.pomdp)
 
     def srv_get_action(self, req):
         """ This service returns an action based on the current belief.
@@ -509,6 +592,7 @@ class SigmaPOMDP(object):
         """
 
         if self.pomdp is None or self.belief is None:
+            rospy.logerr("Error[SigmaPOMDP.srv_get_action]: POMDP or belief are undefined.")
             return GetActionResponse(0.0, 0.0, 0.0)
 
         # Reset the policy so we can get the newest one.
@@ -538,11 +622,14 @@ class SigmaPOMDP(object):
         # TODO: The code below is untested, but probably works. For now, just ignore theta.
         goalTheta = 0.0 # THIS IS A DEBUG LINE
 
-        for y in range(self.gridHeight):
-            string = ""
-            for x in range(self.gridWidth):
-                string += "%.2f " % (self.belief[self.pomdp.states.index((x, self.gridHeight - 1 - y))])
-            print(string)
+        #for y in range(self.gridHeight):
+        #    string = ""
+        #    for x in range(self.gridWidth):
+        #        string += "%.2f " % (self.belief[self.pomdp.states.index((x, self.gridHeight - 1 - y))])
+        #    print(string)
+
+        # Visualize the belief, if desired.
+        self.visualize_belief()
 
         ## Compute the most probable current state and then the most probable successor.
         #mostProbableStateIndex = self.belief.argmax()
@@ -591,7 +678,10 @@ class SigmaPOMDP(object):
         """
 
         if self.pomdp is None or self.belief is None:
+            rospy.logerr("Error[SigmaPOMDP.srv_get_belief]: POMDP or belief are undefined.")
             return GetBeliefResponse(list())
+
+        self.visualize_belief()
 
         return GetBeliefResponse(self.belief.tolist())
 
@@ -606,6 +696,7 @@ class SigmaPOMDP(object):
         """
 
         if self.pomdp is None or self.belief is None:
+            rospy.logerr("Error[SigmaPOMDP.srv_update_belief]: POMDP or belief are undefined.")
             return UpdateBeliefResponse(False)
 
         # Determine which action corresponds to this goal. Do the same for the observation.
@@ -616,23 +707,25 @@ class SigmaPOMDP(object):
         try:
             actionIndex = self.pomdp.actions.index(action)
         except ValueError:
-            rospy.logerr("Error[SigmaPOMDP.srv_belief_update]: Invalid action given: [%i, %i]." % (actionX, actionY))
+            rospy.logerr("Error[SigmaPOMDP.srv_update_belief]: Invalid action given: [%i, %i]." % (actionX, actionY))
             return UpdateBeliefResponse(False)
 
         try:
             observationIndex = self.pomdp.observations.index(req.bump_observed)
         except ValueError:
-            rospy.logerr("Error[SigmaPOMDP.srv_belief_update]: Invalid observation given.")
+            rospy.logerr("Error[SigmaPOMDP.srv_update_belief]: Invalid observation given.")
             return UpdateBeliefResponse(False)
 
-        # Attempt to update the belief.
+        # Attempt to update the belief. This can only really fail if we make an observation
+        # that is impossible at the current belief point.
         try:
-            self.belief = self.pomdp.belief_update(self.belief,
-                                                   actionIndex,
-                                                   observationIndex)
+            self.belief = self.pomdp.belief_update(self.belief, actionIndex, observationIndex)
         except:
-            rospy.logerr("Error[SigmaPOMDP.srv_belief_update]: Failed to update belief.")
+            rospy.logerr("Error[SigmaPOMDP.srv_update_belief]: Failed to update belief.")
             return UpdateBeliefResponse(False)
+
+        # Finally, visualize the belief if desired.
+        self.visualize_belief()
 
         return UpdateBeliefResponse(True)
 
