@@ -9,7 +9,7 @@
   <node name="rviz" pkg="rviz" type="rviz" args="-d $(find sigma)/rviz/default.rviz" />
 
   <node pkg="sigma" type="sigma_pomdp_node" name="sigma_pomdp_node" output="screen">
-    <param name="update_rate" value="10" />
+    <param name="update_rate" value="100" />
 
     <param name="grid_width" value="10" />
     <param name="grid_height" value="10" />
@@ -45,14 +45,17 @@
 
     <param name="pid_theta_Kp" value="0.6" />
     <param name="pid_theta_Ki" value="0.1" />
-    <param name="pid_theta_Kd" value="0.5" />
+    <param name="pid_theta_Kd" value="0.2" />
 
     <param name="desired_velocity" value="0.2" />
 
     <param name="sub_kobuki_odom" value="/odom" /> <!-- /base_pose_ground_truth from nav_msgs -->
     <param name="sub_kobuki_bump" value="/mobile_base/sensors/bumper" />
     <param name="pub_kobuki_vel" value="/cmd_vel" /> <!-- /mobile_base/commands/velocity from kobuki_msgs -->
-    <param name="pub_kobuki_reset_odom" value="/mobile_base/commands/reset_odometry" /> <!-- /mobile_base/commands/reset_odometry from kobuki_msgs -->
+    <!-- <param name="pub_kobuki_reset_odom" value="/mobile_base/commands/reset_odometry" /> --> <!-- /mobile_base/commands/reset_odometry from kobuki_msgs -->
+
+    <param name="sub_map_pose_estimate" value="/initialpose" />
+    <param name="sub_map_nav_goal" value="/move_base_simple/goal" />
   </node>
 </launch>
 

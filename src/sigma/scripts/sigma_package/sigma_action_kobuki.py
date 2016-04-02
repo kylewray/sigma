@@ -39,9 +39,8 @@ from geometry_msgs.msg import Twist
 from nav_msgs.msg import Odometry
 from kobuki_msgs.msg import BumperEvent
 
-from sigma.srv import GetAction
-from sigma.srv import GetBelief
-from sigma.srv import UpdateBelief
+from sigma.msg import *
+from sigma.srv import *
 
 import math
 import numpy as np
@@ -72,12 +71,17 @@ class SigmaActionKobuki(object):
         self.relGoalY = 0.0
         self.relGoalTheta = 0.0
 
+        # Over time, the POMDP's messages will do single-action relGoalTheta assignments. These
+        # need to be tracked and accounted for over time as a permanent theta adjustment.
+        self.permanentThetaAdjustment = 0.0
+
         # This bump variable is assigned in the callback for the sensor. It is used in
         # the odometry callback to control behavior.
         self.detectedBump = False
 
         # Setup the topics for the important services.
         sigmaPOMDPNamespace = rospy.get_param("~sigma_pomdp_namespace", "/sigma_pomdp_node")
+        self.subModelUpdateTopic = sigmaPOMDPNamespace + "/model_update"
         self.srvGetActionTopic = sigmaPOMDPNamespace + "/get_action"
         self.srvGetBeliefTopic = sigmaPOMDPNamespace + "/get_belief"
         self.srvUpdateBeliefTopic = sigmaPOMDPNamespace + "/update_belief"
@@ -113,7 +117,12 @@ class SigmaActionKobuki(object):
             rospy.logwarn("Warn[SigmaActionKobuki.start]: Already started.")
             return
 
-        rospy.sleep(10)
+        rospy.sleep(15)
+
+        subModelUpdateTopic = rospy.get_param("~sub_model_update", "~model_update")
+        self.subModelUpdate = rospy.Subscriber(subModelUpdateTopic,
+                                              ModelUpdate,
+                                              self.sub_model_update)
 
         subKobukiOdomTopic = rospy.get_param("~sub_kobuki_odom", "/odom")
         self.subKobukiOdom = rospy.Subscriber(subKobukiOdomTopic,
@@ -146,11 +155,24 @@ class SigmaActionKobuki(object):
         self.relGoalY = 0.0
         self.relGoalTheta = 0.0
 
+        self.permanentThetaAdjustment = 0.0
+
         self.detectedBump = False
         self.pidDerivator = 0.0
         self.pidIntegrator = 0.0
 
         self.started = False
+
+    def sub_model_update(self, msg):
+        """ The POMDP model has changed. We need to reset everything.
+
+            Parameters:
+                msg     --  The ModelUpdate message data.
+        """
+
+        rospy.loginfo("Info[SigmaActionKobuki.sub_model_update]: The model has been updated. Resetting.")
+
+        self.reset()
 
     def sub_kobuki_odom(self, msg):
         """ Move the robot based on the SigmaPOMDP node's action.
@@ -163,8 +185,9 @@ class SigmaActionKobuki(object):
                 msg     --  The Odometry message data.
         """
 
-        self.check_reached_goal(msg)
-        self.move_to_goal(msg)
+        result = self.check_reached_goal(msg)
+        if result:
+            self.move_to_goal(msg)
 
     def check_reached_goal(self, msg):
         """ Handle checking and reaching a goal.
@@ -174,15 +197,23 @@ class SigmaActionKobuki(object):
 
             Parameters:
                 msg     --  The Odometry message data.
+
+            Returns:
+                True if successful and movement should be performed; False otherwise.
         """
 
-        # Compute the distance to the goal given the positions.
-        distanceToPositionGoal = math.sqrt(pow(self.x - self.goalX, 2) +
-                                           pow(self.y - self.goalY, 2))
+        # Compute the distance to the goal given the positions, as well as the theta goal.
+        errorX = self.goalX - self.x
+        errorY = self.goalY - self.y
+        distanceToPositionGoal = math.sqrt(pow(errorX, 2) + pow(errorY, 2))
+        distanceToThetaGoal = abs(self.goalTheta - self.theta)
 
         # If the robot is far from the goal, with no bump detected either, then do nothing.
-        if distanceToPositionGoal >= self.atPositionGoalThreshold and not self.detectedBump:
-            return
+        if (distanceToPositionGoal >= self.atPositionGoalThreshold or \
+                (self.relGoalX == 0.0 and self.relGoalY == 0.0 and \
+                    distanceToThetaGoal >= self.atThetaGoalThreshold)) and \
+                not self.detectedBump:
+            return True
 
         # However, if it is close enough to the goal, then update the belief with
         # observing a bump or not.
@@ -192,10 +223,10 @@ class SigmaActionKobuki(object):
             res = srvUpdateBelief(self.relGoalX, self.relGoalY, self.detectedBump)
             if not res.success:
                 rospy.logerr("Error[SigmaActionKobuki.check_reached_goal]: Failed to update belief.")
-                return
+                return False
         except rospy.ServiceException:
             rospy.logerr("Error[SigmaActionKobuki.check_reached_goal]: Service exception when updating belief.")
-            return
+            return False
 
         # The new 'origin' is the current pose estimates from the odometers.
         self.x = msg.pose.pose.position.x
@@ -213,29 +244,42 @@ class SigmaActionKobuki(object):
             res = srvGetAction()
         except rospy.ServiceException:
             rospy.logerr("Error[SigmaActionKobuki.check_reached_goal]: Service exception when getting action.")
-            return
+            return False
 
         #rospy.logwarn("Action: [%.1f, %.1f, %.3f]" % (res.goal_x, res.goal_y, res.goal_theta))
         self.relGoalX = res.goal_x
         self.relGoalY = res.goal_y
         self.relGoalTheta = res.goal_theta
 
+        self.permanentThetaAdjustment += self.relGoalTheta
+
+        # Importantly, we rotate the relative goal by the relative theta provided!
+        xyLength = math.sqrt(pow(self.relGoalX, 2) + pow(self.relGoalY, 2))
+        xyTheta = math.atan2(self.relGoalY, self.relGoalX)
+        relGoalAdjustedX = xyLength * math.cos(xyTheta + self.permanentThetaAdjustment)
+        relGoalAdjustedY = xyLength * math.sin(xyTheta + self.permanentThetaAdjustment)
+
         # We need to translate the goal location given by srvGetAction to the world-frame.
         # They are provided as a relative goal. Theta, however, is given in 'world-frame'
         # kinda, basically because it is not in the SigmaPOMDP's state space.
-        self.goalX = self.x + self.relGoalX
-        self.goalY = self.y + self.relGoalY
+        self.goalX = self.x + relGoalAdjustedX + errorX
+        self.goalY = self.y + relGoalAdjustedY + errorY
         self.goalTheta = np.arctan2(self.goalY - self.y, self.goalX - self.x)
 
         # Finally, reset the bump detection because we have already incorporated that
         # in the belief update above.
         self.detectedBump = False
 
+        return True
+
     def move_to_goal(self, msg):
         """ Move toward the goal using the relevant Kobuki messages.
 
             Parameters:
                 msg     --  The Odometry message data.
+
+            Returns:
+                True if successful; False otherwise.
         """
 
         # Get the updated location and orientation from the odometry message.
@@ -253,7 +297,8 @@ class SigmaActionKobuki(object):
 
         control = Twist()
 
-        # If close to the goal, then do nothing. Otherwise, drive based on normal control.
+        # If close to the goal, then do nothing. Otherwise, drive based on normal control. However,
+        # we only update the distance if there is no more relative theta adjustment required.
         distanceToPositionGoal = math.sqrt(pow(self.x - self.goalX, 2) +
                                            pow(self.y - self.goalY, 2))
         if distanceToPositionGoal < self.atPositionGoalThreshold:
@@ -277,6 +322,8 @@ class SigmaActionKobuki(object):
             self.goalTheta += 2.0 * math.pi
             error += 2.0 * math.pi
 
+        #rospy.logwarn("Theta Error: %.4f" % (abs(error)))
+
         if abs(error) < self.atThetaGoalThreshold:
             control.angular.z = 0.0
         else:
@@ -296,6 +343,8 @@ class SigmaActionKobuki(object):
             control.angular.z = valP + valI + valD
 
         self.pubKobukiVel.publish(control)
+
+        return True
 
     def sub_kobuki_bump(self, msg):
         """ This method checks for sensing a bump.

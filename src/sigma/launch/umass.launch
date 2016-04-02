@@ -9,12 +9,12 @@
   <node name="rviz" pkg="rviz" type="rviz" args="-d $(find sigma)/rviz/default.rviz" />
 
   <node pkg="sigma" type="sigma_pomdp_node" name="sigma_pomdp_node" output="screen">
-    <param name="update_rate" value="10" />
+    <param name="update_rate" value="100" />
 
     <!-- <param name="grid_width" value="94" />
     <param name="grid_height" value="31" /> -->
-    <param name="grid_width" value="18" />
-    <param name="grid_height" value="6" />
+    <param name="grid_width" value="30" />
+    <param name="grid_height" value="10" />
 
     <param name="base_probability_of_action_success" value="0.9" />
     <param name="penalty_for_freespace" value="0.05" />
@@ -47,7 +47,7 @@
 
     <param name="pid_theta_Kp" value="0.6" />
     <param name="pid_theta_Ki" value="0.1" />
-    <param name="pid_theta_Kd" value="0.5" />
+    <param name="pid_theta_Kd" value="0.2" />
 
     <param name="desired_velocity" value="0.2" />
 

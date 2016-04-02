@@ -34,12 +34,16 @@ import nova.nova_pomdp as npm
 import nova.pomdp_alpha_vectors as pav
 
 import rospy
+
+from tf.transformations import euler_from_quaternion
+
 from nav_msgs.msg import OccupancyGrid
 from geometry_msgs.msg import PoseWithCovarianceStamped
 from geometry_msgs.msg import PoseStamped
 from visualization_msgs.msg import Marker
 from visualization_msgs.msg import MarkerArray
 
+from sigma.msg import *
 from sigma.srv import *
 
 import math
@@ -88,11 +92,27 @@ class SigmaPOMDP(object):
         self.gridWidth = rospy.get_param("~grid_width", 10)
         self.gridHeight = rospy.get_param("~grid_height", 10)
 
+        # Store if we performed the initial theta adjustment and the final goal theta adjustment
+        self.performedInitialPoseAdjustment = False
+        self.initialPoseAdjustmentX = 0.0
+        self.initialPoseAdjustmentY = 0.0
+        self.initialPoseAdjustmentTheta = 0.0
+
+        self.performedGoalAdjustment = False
+        self.goalAdjustmentX = 0.0
+        self.goalAdjustmentY = 0.0
+        self.goalAdjustmentTheta = 0.0
+
         # Subscribers, publishers, services, etc. for ROS messages.
         self.subOccupancyGrid = None
         self.subMapPoseEstimate = None
         self.subMapNavGoal = None
 
+        self.occupancyGridMsg = None
+        self.mapPoseEstimateMsg = None
+        self.mapNavGoalMsg = None
+
+        self.pubModelUpdate = None
         self.srvGetAction = None
         self.srvGetBelief = None
         self.srvUpdateBelief = None
@@ -126,6 +146,9 @@ class SigmaPOMDP(object):
                                                 PoseStamped,
                                                 self.sub_map_nav_goal)
 
+        pubModelUpdateTopic = rospy.get_param("~model_update", "~model_update")
+        self.pubModelUpdate = rospy.Publisher(pubModelUpdateTopic, ModelUpdate, queue_size=10)
+
         srvGetActionTopic = rospy.get_param("~get_action", "~get_action")
         self.srvGetAction = rospy.Service(srvGetActionTopic,
                                                 GetAction,
@@ -151,6 +174,15 @@ class SigmaPOMDP(object):
 
     def update(self):
         """ Update the SigmaPOMDP object. """
+
+        # These methods deal with the threading issue. Basically, the update below could be called
+        # while the POMDP itself is being modified in a different thread. This can easily be reproduced
+        # by continually assigning new initial pose estimates and goals. Instead, however, we have
+        # any subscriber callbacks assign a variable with the message. This message is then handled
+        # as part of the main node's thread update call (here).
+        self.handle_occupancy_grid_message()
+        self.handle_map_pose_estimate_msg()
+        self.handle_map_nav_goal_msg()
 
         # We only update once we have a valid POMDP.
         if self.pomdp is None or not self.initialBeliefIsSet or not self.goalIsSet:
@@ -317,12 +349,24 @@ class SigmaPOMDP(object):
         return mx, my
 
     def sub_occupancy_grid(self, msg):
-        """ A subscriber handler for OccupancyGrid messages. This converges any 2d map
+        """ A subscriber for OccupancyGrid messages. This converges any 2d map
             into a set of POMDP states. This is a static method to work as a ROS callback.
 
             Parameters:
                 msg     --  The OccupancyGrid message data.
         """
+
+        if self.occupancyGridMsg is None:
+            self.occupancyGridMsg = msg
+
+    def handle_occupancy_grid_message(self):
+        """ A handler for OccupancyGrid messages. This converges any 2d map
+            into a set of POMDP states. This is a static method to work as a ROS callback.
+        """
+
+        if self.occupancyGridMsg is None:
+            return
+        msg = self.occupancyGridMsg
 
         rospy.loginfo("Info[SigmaPOMDP.sub_occupancy_grid]: Received map. Creating a new POMDP.")
 
@@ -470,14 +514,31 @@ class SigmaPOMDP(object):
         #print(np.array(T))
         #print(np.array(O))
 
+        self.occupancyGridMsg = None
+
+        self.pubModelUpdate.publish(ModelUpdate())
+
     def sub_map_pose_estimate(self, msg):
-        """ A subscriber handler for PoseWithCovarianceStamped messages. This is when an initial
+        """ A subscriber for PoseWithCovarianceStamped messages. This is when an initial
             pose is assigned, inducing an initial belief. This is a static method to work as a
             ROS callback.
 
             Parameters:
                 msg     --  The PoseWithCovarianceStamped message data.
         """
+
+        if self.mapPoseEstimateMsg is None:
+            self.mapPoseEstimateMsg = msg
+
+    def handle_map_pose_estimate_msg(self):
+        """ A handler for PoseWithCovarianceStamped messages. This is when an initial
+            pose is assigned, inducing an initial belief. This is a static method to work as a
+            ROS callback.
+        """
+
+        if self.mapPoseEstimateMsg is None:
+            return
+        msg = self.mapPoseEstimateMsg
 
         if self.pomdp is None:
             rospy.logwarn("Warn[SigmaPOMDP.sub_map_pose_estimate]: POMDP has not yet been defined.")
@@ -491,6 +552,19 @@ class SigmaPOMDP(object):
             return
 
         rospy.loginfo("Info[SigmaPOMDP.sub_map_pose_estimate]: Received pose estimate. Assigning POMDP initial beliefs.")
+
+        # Setup the initial pose adjustment.
+        worldPoseEstimateOfGridX, worldPoseEstimateOfGridY = self.map_to_world(gridPoseEstimateX, gridPoseEstimateY)
+        self.initialPoseAdjustmentX = worldPoseEstimateOfGridX - gridPoseEstimateX
+        self.initialPoseAdjustmentY = worldPoseEstimateOfGridY - gridPoseEstimateY
+
+        roll, pitch, yaw = euler_from_quaternion([msg.pose.pose.orientation.x,
+                                                  msg.pose.pose.orientation.y,
+                                                  msg.pose.pose.orientation.z,
+                                                  msg.pose.pose.orientation.w])
+        self.initialPoseAdjustmentTheta = -yaw
+
+        self.performedInitialPoseAdjustment = False
 
         # Random Version: The seed belief is simply a collapsed belief on this initial pose.
         #Z = [[sInitialBelief]]
@@ -534,13 +608,29 @@ class SigmaPOMDP(object):
 
         self.initialBeliefIsSet = True
 
+        self.mapPoseEstimateMsg = None
+
+        self.pubModelUpdate.publish(ModelUpdate())
+
     def sub_map_nav_goal(self, msg):
-        """ A subscriber handler for PoseStamped messages. This is called when a goal is provided,
+        """ A subscriber for PoseStamped messages. This is called when a goal is provided,
             assigning the rewards for the POMDP. This is a static method to work as a ROS callback.
 
             Parameters:
                 msg     --  The OccupancyGrid message data.
         """
+
+        if self.mapNavGoalMsg is None:
+            self.mapNavGoalMsg = msg
+
+    def handle_map_nav_goal_msg(self):
+        """ A handler for PoseStamped messages. This is called when a goal is provided,
+            assigning the rewards for the POMDP. This is a static method to work as a ROS callback.
+        """
+
+        if self.mapNavGoalMsg is None:
+            return
+        msg = self.mapNavGoalMsg
 
         if self.pomdp is None:
             rospy.logwarn("Warn[SigmaPOMDP.sub_map_nav_goal]: POMDP has not yet been defined.")
@@ -555,16 +645,30 @@ class SigmaPOMDP(object):
 
         rospy.loginfo("Info[SigmaPOMDP.sub_map_nav_goal]: Received goal. Assigning POMDP rewards.")
 
+        # Setup the goal theta adjustment.
+        #worldGoalOfGridX, worldGoalOfGridY = self.map_to_world(gridGoalX, gridGoalY)
+        #self.goalAdjustmentX = worldGoalOfGridX - gridGoalX
+        #self.goalAdjustmentY = worldGoalOfGridY - gridGoalY
+
+        roll, pitch, yaw = euler_from_quaternion([msg.pose.orientation.x,
+                                                  msg.pose.orientation.y,
+                                                  msg.pose.orientation.z,
+                                                  msg.pose.orientation.w])
+        self.goalAdjustmentTheta = yaw
+
+        self.performedGoalAdjustment = False
+
         R = [[0.0 for a in range(self.pomdp.m)] for s in range(self.pomdp.n)]
 
         for s, state in enumerate(self.pomdp.states):
             for a, action in enumerate(self.pomdp.actions):
                 if gridGoalX == state[0] and gridGoalY == state[1] and action == (0, 0):
                     R[s][a] = 0.0
-                elif self.stateObstaclePercentage[state] >= 0.8:
-                    R[s][a] = -10000.0
+                #elif self.stateObstaclePercentage[state] == 1.0:
+                #    R[s][a] = -100.0
                 else:
-                    R[s][a] = -1.0 #min(-self.penaltyForFreespace, -self.stateObstaclePercentage[state])
+                    #R[s][a] = -1.0
+                    R[s][a] = min(-self.penaltyForFreespace, -self.stateObstaclePercentage[state])
 
         self.pomdp.Rmax = np.array(R).max()
         self.pomdp.Rmin = np.array(R).min()
@@ -577,6 +681,10 @@ class SigmaPOMDP(object):
         self.initialize_algorithm()
 
         self.goalIsSet = True
+
+        self.mapNavGoalMsg = None
+
+        self.pubModelUpdate.publish(ModelUpdate())
 
         #print(np.array(R))
         #print(self.pomdp)
@@ -591,7 +699,7 @@ class SigmaPOMDP(object):
                 The service response as part of GetAction.
         """
 
-        if self.pomdp is None or self.belief is None:
+        if self.pomdp is None or not self.initialBeliefIsSet or not self.goalIsSet or self.belief is None:
             rospy.logerr("Error[SigmaPOMDP.srv_get_action]: POMDP or belief are undefined.")
             return GetActionResponse(0.0, 0.0, 0.0)
 
@@ -619,51 +727,24 @@ class SigmaPOMDP(object):
         goalX *= xSize * self.mapResolution
         goalY *= ySize * self.mapResolution
 
-        # TODO: The code below is untested, but probably works. For now, just ignore theta.
-        goalTheta = 0.0 # THIS IS A DEBUG LINE
-
-        #for y in range(self.gridHeight):
-        #    string = ""
-        #    for x in range(self.gridWidth):
-        #        string += "%.2f " % (self.belief[self.pomdp.states.index((x, self.gridHeight - 1 - y))])
-        #    print(string)
-
         # Visualize the belief, if desired.
         self.visualize_belief()
 
-        ## Compute the most probable current state and then the most probable successor.
-        #mostProbableStateIndex = self.belief.argmax()
-        #mostProbableStateIndexPrime = None
-        #mostProbableStateIndexPrimeValue = 0.0
 
-        #for i in range(self.pomdp.ns):
-        #    sp = self.pomdp.S[mostProbableStateIndex * self.pomdp.m * self.pomdp.n +
-        #                      actionIndex * self.pomdp.n + i]
-        #    if sp < 0:
-        #        break
-
-        #    value = self.pomdp.T[mostProbableStateIndex * self.pomdp.m * self.pomdp.n +
-        #                         actionIndex * self.pomdp.n + i]
-
-        #    if mostProbableStateIndexPrimeValue < value:
-        #        mostProbableStateIndexPrime = sp
-        #        mostProbableStateIndexPrimeValue = value
-
-        ## Now compute the most probable observation given this information. This ensures
-        ## we have an observation which is actually possible to see.
-        #observationIndex = 0
-        #if self.pomdp.O[actionIndex * self.pomdp.n * self.pomdp.z +
-        #                mostProbableStateIndexPrime * self.pomdp.z + 1] > 0.5:
-        #   observationIndex = 1
-
-        ## Perform a belief update with this observation and compute the action there.
-        #beliefPrime = self.pomdp.belief_update(self.belief, actionIndex, observationIndex)
-        #valuePrime, actionIndexPrime = self.policy.value_and_action(beliefPrime)
-        #goalXPrime, goalYPrime = self.pomdp.actions[actionIndexPrime]
-
-        ## The goal's theta is determined from this action. Note we want the theta in [0, 2pi]
-        ## so we must offset by pi because arctan2 returns in [-pi, pi].
-        #goalTheta = np.arctan2(goalYPrime, goalXPrime) + np.pi
+        # If this is the first action we take, then we need to offset the goalX and goalY
+        # as well as assign a goalTheta to properly setup the initial motion. Also, if the
+        # goal is reached, then we need to perform the final theta rotation. Otherwise,
+        # the adjustment required is simply 0; the path (action) follower will handle this.
+        if not self.performedInitialPoseAdjustment:
+            #goalX += self.initialPoseAdjustmentX
+            #goalY += self.initialPoseAdjustmentY
+            goalTheta = self.initialPoseAdjustmentTheta
+            self.performedInitialPoseAdjustment = True
+        elif not self.performedGoalAdjustment and self.pomdp.actions[actionIndex] == (0, 0):
+            goalTheta = self.goalAdjustmentTheta
+            self.performedGoalAdjustment = True
+        else:
+            goalTheta = 0.0
 
         return GetActionResponse(goalX, goalY, goalTheta)
 
@@ -677,7 +758,7 @@ class SigmaPOMDP(object):
                 The service response as part of GetBelief.
         """
 
-        if self.pomdp is None or self.belief is None:
+        if self.pomdp is None or not self.initialBeliefIsSet or not self.goalIsSet or self.belief is None:
             rospy.logerr("Error[SigmaPOMDP.srv_get_belief]: POMDP or belief are undefined.")
             return GetBeliefResponse(list())
 
@@ -695,7 +776,7 @@ class SigmaPOMDP(object):
                 The service response as part of UpdateBelief.
         """
 
-        if self.pomdp is None or self.belief is None:
+        if self.pomdp is None or not self.initialBeliefIsSet or not self.goalIsSet or self.belief is None:
             rospy.logerr("Error[SigmaPOMDP.srv_update_belief]: POMDP or belief are undefined.")
             return UpdateBeliefResponse(False)
 
