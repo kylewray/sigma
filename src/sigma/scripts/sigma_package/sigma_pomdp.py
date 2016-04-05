@@ -92,6 +92,12 @@ class SigmaPOMDP(object):
         self.gridWidth = rospy.get_param("~grid_width", 10)
         self.gridHeight = rospy.get_param("~grid_height", 10)
 
+        # There is a pre-determined number of updates before get_action will return something.
+        self.numberOfUpdates = 0
+        self.numberOfUpdatesBeforeProvidingActions = \
+                                    rospy.get_param("~number_of_updates_before_providing_actions",
+                                                    self.gridWidth * self.gridHeight)
+
         # Store if we performed the initial theta adjustment and the final goal theta adjustment
         self.performedInitialPoseAdjustment = False
         self.initialPoseAdjustmentX = 0.0
@@ -198,11 +204,17 @@ class SigmaPOMDP(object):
         # This can be NOVA_SUCCESS or NOVA_CONVERGED.
         result = npm._nova.pomdp_pbvi_update_cpu(self.pomdp)
 
+        self.numberOfUpdates += 1
+
     def initialize_algorithm(self):
         """ Initialize the POMDP algorithm. """
 
         if self.algorithmIsInitialized:
             rospy.logwarn("Warn[SigmaPOMDP.initialize_algorithm]: Algorithm is already initialized.")
+            return
+
+        if not self.initialBeliefIsSet or not self.goalIsSet:
+            rospy.logwarn("Warn[SigmaPOMDP.initialize_algorithm]: Initial belief or goal is not set yet.")
             return
 
         initialGamma = np.array([[float(self.pomdp.Rmin / (1.0 - self.pomdp.gamma)) \
@@ -218,6 +230,8 @@ class SigmaPOMDP(object):
         if result != 0:
             rospy.logerr("Error[SigmaPOMDP.initialize_algorithm]: Failed to initialize algorithm.")
             return
+
+        self.numberOfUpdates = 0
 
         self.algorithmIsInitialized = True
 
@@ -600,6 +614,9 @@ class SigmaPOMDP(object):
 
         rospy.loginfo("Info[SigmaPOMDP.sub_map_pose_estimate]: Completed expansions.")
 
+        self.uninitialize_algorithm()
+        self.initialize_algorithm()
+
         # Set the initial belief to be collapsed at the correct location.
         self.belief = np.array([float(s == sInitialBelief) for s in range(self.pomdp.n)])
 
@@ -646,9 +663,9 @@ class SigmaPOMDP(object):
         rospy.loginfo("Info[SigmaPOMDP.sub_map_nav_goal]: Received goal. Assigning POMDP rewards.")
 
         # Setup the goal theta adjustment.
-        #worldGoalOfGridX, worldGoalOfGridY = self.map_to_world(gridGoalX, gridGoalY)
-        #self.goalAdjustmentX = worldGoalOfGridX - gridGoalX
-        #self.goalAdjustmentY = worldGoalOfGridY - gridGoalY
+        worldGoalOfGridX, worldGoalOfGridY = self.map_to_world(gridGoalX, gridGoalY)
+        self.goalAdjustmentX = worldGoalOfGridX - gridGoalX
+        self.goalAdjustmentY = worldGoalOfGridY - gridGoalY
 
         roll, pitch, yaw = euler_from_quaternion([msg.pose.orientation.x,
                                                   msg.pose.orientation.y,
@@ -690,7 +707,7 @@ class SigmaPOMDP(object):
         #print(self.pomdp)
 
     def srv_get_action(self, req):
-        """ This service returns an action based on the current belief.
+        """ This service returns an action based on the current belief, provided enough updates were done.
 
             Parameters:
                 req     --  The service request as part of GetAction.
@@ -701,7 +718,11 @@ class SigmaPOMDP(object):
 
         if self.pomdp is None or not self.initialBeliefIsSet or not self.goalIsSet or self.belief is None:
             rospy.logerr("Error[SigmaPOMDP.srv_get_action]: POMDP or belief are undefined.")
-            return GetActionResponse(0.0, 0.0, 0.0)
+            return GetActionResponse(False, 0.0, 0.0, 0.0)
+
+        # Do nothing until the number of updates is sufficient.
+        if self.numberOfUpdates < self.numberOfUpdatesBeforeProvidingActions:
+            return GetActionResponse(False, 0.0, 0.0, 0.0)
 
         # Reset the policy so we can get the newest one.
         self.policyPointer = ct.POINTER(pav.POMDPAlphaVectors)()
@@ -710,7 +731,7 @@ class SigmaPOMDP(object):
         result = npm._nova.pomdp_pbvi_get_policy_cpu(self.pomdp, ct.byref(self.policyPointer))
         if result != 0:
             rospy.logerr("Error[SigmaPOMDP.srv_get_action]: Could not get policy.")
-            return GetActionResponse(0.0, 0.0, 0.0)
+            return GetActionResponse(False, 0.0, 0.0, 0.0)
 
         self.policy = self.policyPointer.contents
 
@@ -730,7 +751,6 @@ class SigmaPOMDP(object):
         # Visualize the belief, if desired.
         self.visualize_belief()
 
-
         # If this is the first action we take, then we need to offset the goalX and goalY
         # as well as assign a goalTheta to properly setup the initial motion. Also, if the
         # goal is reached, then we need to perform the final theta rotation. Otherwise,
@@ -741,12 +761,14 @@ class SigmaPOMDP(object):
             goalTheta = self.initialPoseAdjustmentTheta
             self.performedInitialPoseAdjustment = True
         elif not self.performedGoalAdjustment and self.pomdp.actions[actionIndex] == (0, 0):
+            #goalX += self.goalAdjustmentX
+            #goalY += self.goalAdjustmentY
             goalTheta = self.goalAdjustmentTheta
             self.performedGoalAdjustment = True
         else:
             goalTheta = 0.0
 
-        return GetActionResponse(goalX, goalY, goalTheta)
+        return GetActionResponse(True, goalX, goalY, goalTheta)
 
     def srv_get_belief(self, req):
         """ This service returns the current belief.
@@ -778,6 +800,10 @@ class SigmaPOMDP(object):
 
         if self.pomdp is None or not self.initialBeliefIsSet or not self.goalIsSet or self.belief is None:
             rospy.logerr("Error[SigmaPOMDP.srv_update_belief]: POMDP or belief are undefined.")
+            return UpdateBeliefResponse(False)
+
+        # Do nothing until the number of updates is sufficient.
+        if self.numberOfUpdates < self.numberOfUpdatesBeforeProvidingActions:
             return UpdateBeliefResponse(False)
 
         # Determine which action corresponds to this goal. Do the same for the observation.

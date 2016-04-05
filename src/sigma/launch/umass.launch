@@ -21,6 +21,8 @@
     <!-- <param name="number_of_beliefs_to_add" value="10000" /> -->
     <param name="number_of_belief_expansions" value="1" />
 
+    <param name="number_of_updates_before_providing_actions" value="300" />
+
     <param name="sub_occupancy_grid" value="/map" />
 
     <param name="sub_map_pose_estimate" value="/initialpose" />
@@ -36,7 +38,12 @@
   </node>
 
   <node pkg="sigma" type="sigma_action_kobuki_node" name="sigma_action_kobuki_node" output="screen">
-    <remap from="cmd_vel" to="/mobile_base/commands/velocity"/>
+    <!-- Note "remap" for commands 'pushes' data from something to something else. Conversely,
+         information 'flows' from something to something else. Hence the remapping below. -->
+    <remap from="/base_pose_ground_truth" to="/odom" /> <!-- nav_msgs -->
+    <remap from="/cmd_vel" to="/mobile_base/commands/velocity" /> <!-- kobuki_msgs -->
+    <remap from="/cmd_reset_odom" to="/mobile_base/commands/reset_odometry" /> <!-- kobuki_msgs -->
+    <remap from="/mobile_base/events/bumper" to="/evt_bump" /> <!-- kobuki_msgs -->
 
     <param name="sigma_pomdp_namespace" value="/sigma_pomdp_node" />
 
@@ -45,16 +52,19 @@
 
     <param name="pid_integrator_bounds" value="0.05" />
 
-    <param name="pid_theta_Kp" value="0.6" />
-    <param name="pid_theta_Ki" value="0.1" />
-    <param name="pid_theta_Kd" value="0.2" />
+    <param name="pid_theta_Kp" value="2.0" />
+    <param name="pid_theta_Ki" value="0.5" />
+    <param name="pid_theta_Kd" value="0.5" />
 
-    <param name="desired_velocity" value="0.2" />
+    <param name="desired_velocity" value="0.4" />
 
-    <param name="sub_kobuki_odom" value="/odom" /> <!-- /base_pose_ground_truth from nav_msgs -->
-    <param name="sub_kobuki_bump" value="/mobile_base/sensors/bumper" />
-    <param name="pub_kobuki_vel" value="/cmd_vel" /> <!-- /mobile_base/commands/velocity from kobuki_msgs -->
-    <param name="pub_kobuki_reset_odom" value="/mobile_base/commands/reset_odometry" /> <!-- /mobile_base/commands/reset_odometry from kobuki_msgs -->
+    <param name="sub_kobuki_odom" value="/odom" />
+    <param name="sub_kobuki_bump" value="/evt_bump" />
+    <param name="pub_kobuki_vel" value="/cmd_vel" />
+    <param name="pub_kobuki_reset_odom" value="/cmd_reset_odom" />
+
+    <param name="sub_map_pose_estimate" value="/initialpose" />
+    <param name="sub_map_nav_goal" value="/move_base_simple/goal" />
   </node>
 </launch>
 

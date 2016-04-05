@@ -35,6 +35,7 @@ import rospy
 
 from tf.transformations import euler_from_quaternion
 
+from std_msgs.msg import Empty
 from geometry_msgs.msg import Twist
 from nav_msgs.msg import Odometry
 from kobuki_msgs.msg import BumperEvent
@@ -57,6 +58,10 @@ class SigmaActionKobuki(object):
         self.x = 0.0
         self.y = 0.0
         self.theta = 0.0
+
+        self.previousX = 0.0
+        self.previousY = 0.0
+        self.previousTheta = 0.0
 
         # Again, these are world-frame goal values. Once it arrives at the goal, it will
         # get a new action, which assigns a new goal.
@@ -97,18 +102,20 @@ class SigmaActionKobuki(object):
         self.pidIntegratorBounds = rospy.get_param("~pid_integrator_bounds", 0.05)
 
         # Load the gains for PID control.
-        self.pidThetaKp = rospy.get_param("~pid_theta_Kp", 0.2)
-        self.pidThetaKi = rospy.get_param("~pid_theta_Ki", 0.0)
-        self.pidThetaKd = rospy.get_param("~pid_theta_Kd", 0.1)
+        self.pidThetaKp = rospy.get_param("~pid_theta_Kp", 1.0)
+        self.pidThetaKi = rospy.get_param("~pid_theta_Ki", 0.2)
+        self.pidThetaKd = rospy.get_param("~pid_theta_Kd", 0.2)
 
         self.desiredVelocity = rospy.get_param("~desired_velocity", 0.2)
 
         # Finally, we create variables for the messages.
         self.started = False
+        self.resetRequired = False
 
         self.subKobukiOdom = None
         self.subKobukiBump = None
         self.pubKobukiVel = None
+        self.pubKobukiResetOdom = None
 
     def start(self):
         """ Start the necessary messages to operate the Kobuki. """
@@ -117,10 +124,9 @@ class SigmaActionKobuki(object):
             rospy.logwarn("Warn[SigmaActionKobuki.start]: Already started.")
             return
 
-        rospy.sleep(15)
+        #rospy.sleep(15)
 
-        subModelUpdateTopic = rospy.get_param("~sub_model_update", "~model_update")
-        self.subModelUpdate = rospy.Subscriber(subModelUpdateTopic,
+        self.subModelUpdate = rospy.Subscriber(self.subModelUpdateTopic,
                                               ModelUpdate,
                                               self.sub_model_update)
 
@@ -129,13 +135,16 @@ class SigmaActionKobuki(object):
                                               Odometry,
                                               self.sub_kobuki_odom)
 
-        subKobukiBumpTopic = rospy.get_param("~sub_kobuki_bump", "/mobile_base/sensors/bumper")
+        subKobukiBumpTopic = rospy.get_param("~sub_kobuki_bump", "/evt_bump")
         self.subKobukiBump = rospy.Subscriber(subKobukiBumpTopic,
                                               BumperEvent,
                                               self.sub_kobuki_bump)
 
         pubKobukiVelTopic = rospy.get_param("~pub_kobuki_vel", "/cmd_vel")
         self.pubKobukiVel = rospy.Publisher(pubKobukiVelTopic, Twist, queue_size=32)
+
+        pubKobukiResetOdomTopic = rospy.get_param("~pub_kobuki_reset_odom", "/cmd_reset_odom")
+        self.pubKobukiResetOdom = rospy.Publisher(pubKobukiResetOdomTopic, Empty, queue_size=32)
 
         self.started = True
 
@@ -145,6 +154,13 @@ class SigmaActionKobuki(object):
         self.x = 0.0
         self.y = 0.0
         self.theta = 0.0
+
+        # Note: We do *not* reset these on a 'reset'. The odometers do not get reset, and these
+        # are used to compute the delta and update (x, y, theta) above according to this difference.
+        # Thus, we just leave these at whatever they are, all the time.
+        #self.previousX = 0.0
+        #self.previousY = 0.0
+        #self.previousTheta = 0.0
 
         self.atGoal = False
         self.goalX = 0.0
@@ -158,10 +174,22 @@ class SigmaActionKobuki(object):
         self.permanentThetaAdjustment = 0.0
 
         self.detectedBump = False
+
         self.pidDerivator = 0.0
         self.pidIntegrator = 0.0
 
         self.started = False
+
+        # Reset the robot's odometry.
+        #if self.pubKobukiResetOdom is not None:
+        #    self.pubKobukiResetOdom.publish(Empty())
+
+        # Stop the robot's motion.
+        if self.pubKobukiVel is not None: 
+            control = Twist()
+            self.pubKobukiVel.publish(control)
+
+        self.resetRequired = False
 
     def sub_model_update(self, msg):
         """ The POMDP model has changed. We need to reset everything.
@@ -172,7 +200,7 @@ class SigmaActionKobuki(object):
 
         rospy.loginfo("Info[SigmaActionKobuki.sub_model_update]: The model has been updated. Resetting.")
 
-        self.reset()
+        self.resetRequired = True
 
     def sub_kobuki_odom(self, msg):
         """ Move the robot based on the SigmaPOMDP node's action.
@@ -185,8 +213,10 @@ class SigmaActionKobuki(object):
                 msg     --  The Odometry message data.
         """
 
-        result = self.check_reached_goal(msg)
-        if result:
+        if self.resetRequired:
+            self.reset()
+
+        if self.check_reached_goal(msg):
             self.move_to_goal(msg)
 
     def check_reached_goal(self, msg):
@@ -208,6 +238,8 @@ class SigmaActionKobuki(object):
         distanceToPositionGoal = math.sqrt(pow(errorX, 2) + pow(errorY, 2))
         distanceToThetaGoal = abs(self.goalTheta - self.theta)
 
+        print("ERROR ---- %.4f %.4f" % (errorX, errorY))
+
         # If the robot is far from the goal, with no bump detected either, then do nothing.
         if (distanceToPositionGoal >= self.atPositionGoalThreshold or \
                 (self.relGoalX == 0.0 and self.relGoalY == 0.0 and \
@@ -216,26 +248,17 @@ class SigmaActionKobuki(object):
             return True
 
         # However, if it is close enough to the goal, then update the belief with
-        # observing a bump or not.
+        # observing a bump or not. This may fail if not enough updates have been performed.
         rospy.wait_for_service(self.srvUpdateBeliefTopic)
         try:
             srvUpdateBelief = rospy.ServiceProxy(self.srvUpdateBeliefTopic, UpdateBelief)
             res = srvUpdateBelief(self.relGoalX, self.relGoalY, self.detectedBump)
             if not res.success:
-                rospy.logerr("Error[SigmaActionKobuki.check_reached_goal]: Failed to update belief.")
+                rospy.logwarn("Error[SigmaActionKobuki.check_reached_goal]: Failed to update belief.")
                 return False
         except rospy.ServiceException:
             rospy.logerr("Error[SigmaActionKobuki.check_reached_goal]: Service exception when updating belief.")
             return False
-
-        # The new 'origin' is the current pose estimates from the odometers.
-        self.x = msg.pose.pose.position.x
-        self.y = msg.pose.pose.position.y
-        roll, pitch, yaw = euler_from_quaternion([msg.pose.pose.orientation.x,
-                                                  msg.pose.pose.orientation.y,
-                                                  msg.pose.pose.orientation.z,
-                                                  msg.pose.pose.orientation.w])
-        self.theta = yaw
 
         # Now do a service request for the SigmaPOMDP to send the current action.
         rospy.wait_for_service(self.srvGetActionTopic)
@@ -245,6 +268,24 @@ class SigmaActionKobuki(object):
         except rospy.ServiceException:
             rospy.logerr("Error[SigmaActionKobuki.check_reached_goal]: Service exception when getting action.")
             return False
+
+        # This may fail if not enough updates have been performed.
+        if not res.success:
+            rospy.loginfo("Error[SigmaActionKobuki.check_reached_goal]: No action was returned.")
+            return False
+
+        # The new 'origin' is the current pose estimates from the odometers.
+        self.x += msg.pose.pose.position.x - self.previousX
+        self.y += msg.pose.pose.position.y - self.previousY
+        roll, pitch, yaw = euler_from_quaternion([msg.pose.pose.orientation.x,
+                                                  msg.pose.pose.orientation.y,
+                                                  msg.pose.pose.orientation.z,
+                                                  msg.pose.pose.orientation.w])
+        self.theta += yaw - self.previousTheta
+
+        self.previousX = msg.pose.pose.position.x
+        self.previousY = msg.pose.pose.position.y
+        self.previousTheta = yaw
 
         #rospy.logwarn("Action: [%.1f, %.1f, %.3f]" % (res.goal_x, res.goal_y, res.goal_theta))
         self.relGoalX = res.goal_x
@@ -283,17 +324,23 @@ class SigmaActionKobuki(object):
         """
 
         # Get the updated location and orientation from the odometry message.
-        self.x = msg.pose.pose.position.x
-        self.y = msg.pose.pose.position.y
+        self.x += msg.pose.pose.position.x - self.previousX
+        self.y += msg.pose.pose.position.y - self.previousY
         roll, pitch, yaw = euler_from_quaternion([msg.pose.pose.orientation.x,
                                                   msg.pose.pose.orientation.y,
                                                   msg.pose.pose.orientation.z,
                                                   msg.pose.pose.orientation.w])
-        self.theta = yaw
+        self.theta += yaw - self.previousTheta
 
-        #rospy.logwarn("[x, y, theta]: [%.4f, %.4f, %.4f]" % (self.x, self.y, self.theta))
-        #rospy.logwarn("[goalX, goalY]: [%.4f, %.4f]" % (self.goalX, self.goalY))
-        #rospy.logwarn("[relGoalX, relGoalY]: [%.4f, %.4f]" % (self.relGoalX, self.relGoalY))
+        self.previousX = msg.pose.pose.position.x
+        self.previousY = msg.pose.pose.position.y
+        self.previousTheta = yaw
+
+        print("ODOMETERS: %.3f %.3f %.3f" % (self.x, self.y, self.theta))
+
+        rospy.logwarn("[x, y, theta]: [%.4f, %.4f, %.4f]" % (self.x, self.y, self.theta))
+        rospy.logwarn("[goalX, goalY]: [%.4f, %.4f]" % (self.goalX, self.goalY))
+        rospy.logwarn("[relGoalX, relGoalY]: [%.4f, %.4f]" % (self.relGoalX, self.relGoalY))
 
         control = Twist()
 
