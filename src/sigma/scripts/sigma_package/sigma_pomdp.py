@@ -30,8 +30,8 @@ thisFilePath = os.path.dirname(os.path.realpath(__file__))
 
 sys.path.append(os.path.join(thisFilePath, "..", "..", "libnova", "python"))
 from nova.pomdp import POMDP
-import nova.nova_pomdp as npm
-import nova.pomdp_alpha_vectors as pav
+import nova.pomdp_pbvi as solver
+import nova.pomdp_alpha_vectors as policy
 
 import rospy
 
@@ -67,7 +67,6 @@ class SigmaPOMDP(object):
         # The POMDP and other related information. Note: ctypes pointer (policy) is 'False' if null. Otherwise,
         # we can call policy.contents to dereference the pointer.
         self.pomdp = POMDP()
-        self.policyPointer = ct.POINTER(pav.POMDPAlphaVectors)()
         self.policy = None
         self.belief = None
 
@@ -96,9 +95,8 @@ class SigmaPOMDP(object):
 
         # There is a pre-determined number of updates before get_action will return something.
         self.numberOfUpdates = 0
-        self.numberOfUpdatesBeforeProvidingActions = \
-                                    rospy.get_param("~number_of_updates_before_providing_actions",
-                                                    self.gridWidth * self.gridHeight)
+        self.numberOfUpdatesBeforeProvidingActions = rospy.get_param("~number_of_updates_before_providing_actions",
+                                                                     self.gridWidth * self.gridHeight)
 
         # Store if we performed the initial theta adjustment and the final goal theta adjustment
         self.performedInitialPoseAdjustment = False
@@ -204,7 +202,7 @@ class SigmaPOMDP(object):
         #rospy.loginfo("Info[SigmaPOMDP.update]: Updating the policy.")
 
         # This can be NOVA_SUCCESS or NOVA_CONVERGED.
-        result = npm._nova.pomdp_pbvi_update_cpu(self.pomdp)
+        result = self.solver.update()
 
         self.numberOfUpdates += 1
 
@@ -228,8 +226,9 @@ class SigmaPOMDP(object):
 
         rospy.loginfo("Info[SigmaPOMDP.initialize_algorithm]: Initializing the algorithm.")
 
-        result = npm._nova.pomdp_pbvi_initialize_cpu(self.pomdp, initialGamma)
-        if result != 0:
+        try:
+            self.solver = solver.POMDPPBVICPU(self.pomdp, initialGamma)
+        except:
             rospy.logerr("Error[SigmaPOMDP.initialize_algorithm]: Failed to initialize algorithm.")
             return
 
@@ -246,11 +245,11 @@ class SigmaPOMDP(object):
 
         rospy.loginfo("Info[SigmaPOMDP.uninitialize_algorithm]: Uninitializing the algorithm.")
 
-        self.policyPointer = ct.POINTER(pav.POMDPAlphaVectors)()
         self.policy = None
 
-        result = npm._nova.pomdp_pbvi_uninitialize_cpu(self.pomdp)
-        if result != 0:
+        try:
+            del self.solver
+        except:
             rospy.logwarn("Warn[SigmaPOMDP.uninitialize_algorithm]: Failed to uninitialize algorithm.")
 
         self.algorithmIsInitialized = False
@@ -542,7 +541,6 @@ class SigmaPOMDP(object):
         array_type_mnz_float = ct.c_float * (self.pomdp.m * self.pomdp.n * self.pomdp.z)
         self.pomdp.O = array_type_mnz_float(*np.array(O).flatten())
 
-        self.pomdp.k = 1
         self.pomdp.gamma = 0.99
         self.pomdp.horizon = self.gridWidth * self.gridHeight
 
@@ -751,15 +749,13 @@ class SigmaPOMDP(object):
             return GetActionResponse(False, 0.0, 0.0, 0.0)
 
         # Reset the policy so we can get the newest one.
-        self.policyPointer = ct.POINTER(pav.POMDPAlphaVectors)()
         self.policy = None
 
-        result = npm._nova.pomdp_pbvi_get_policy_cpu(self.pomdp, ct.byref(self.policyPointer))
-        if result != 0:
+        try:
+            self.policy = self.solver.get_policy()
+        except:
             rospy.logerr("Error[SigmaPOMDP.srv_get_action]: Could not get policy.")
             return GetActionResponse(False, 0.0, 0.0, 0.0)
-
-        self.policy = self.policyPointer.contents
 
         value, actionIndex = self.policy.value_and_action(self.belief)
         actionIndex = int(actionIndex)
@@ -846,7 +842,7 @@ class SigmaPOMDP(object):
         try:
             observationIndex = self.pomdp.observations.index(req.bump_observed)
         except ValueError:
-            rospy.logerr("Error[SigmaPOMDP.srv_update_belief]: Invalid observation given.")
+            rospy.logerr("Error[SigmaPOMDP.srv_update_belief]: Invalid observation given: %s." % (str(req.bump_observed)))
             return UpdateBeliefResponse(False)
 
         # Attempt to update the belief. This can only really fail if we make an observation

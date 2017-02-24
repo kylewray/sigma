@@ -20,14 +20,38 @@
     CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 """
 
-__all__ = ["nova_mdp", "mdp",
-           "nova_mdp_vi", "mdp_vi",
-           "nova_ssp_lao_star", "mdp_ssp_lao_star",
-           "nova_ssp_rtdp", "mdp_ssp_rtdp",
-           "nova_mdp_value_function", "mdp_value_function",
-           "nova_pomdp", "pomdp",
-           "nova_pomdp_pbvi", "pomdp_pbvi",
-           "nova_pomdp_perseus", "pomdp_perseus",
-           "nova_pomdp_alpha_vectors", "pomdp_alpha_vectors",
-           "file_loader"]
+import ctypes as ct
+import platform
+import os.path
+
+
+# Check if we need to create the nova variable. If so, import the correct library
+# file depending on the platform.
+#try:
+#    _nova
+#except NameError:
+_nova = None
+if platform.system() == "Windows":
+    _nova = ct.CDLL(os.path.join(os.path.dirname(os.path.realpath(__file__)),
+                    "..", "..", "lib", "libnova.dll"))
+else:
+    _nova = ct.CDLL(os.path.join(os.path.dirname(os.path.realpath(__file__)),
+                    "..", "..", "lib", "libnova.so"))
+
+
+class NovaMDPValueFunction(ct.Structure):
+    """ The C struct NovaMDPValueFunction object. """
+
+    _fields_ = [("n", ct.c_uint),
+                ("m", ct.c_uint),
+                ("r", ct.c_uint),
+                ("S", ct.POINTER(ct.c_uint)),
+                ("V", ct.POINTER(ct.c_float)),
+                ("pi", ct.POINTER(ct.c_uint)),
+                ]
+
+
+# Functions from 'mdp_value_function.h'.
+_nova.mdp_value_function_free.argtypes = tuple([ct.POINTER(NovaMDPValueFunction)])
+
 

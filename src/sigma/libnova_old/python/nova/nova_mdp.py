@@ -1,6 +1,6 @@
 """ The MIT License (MIT)
 
-    Copyright (c) 2016 Kyle Hollins Wray, University of Massachusetts
+    Copyright (c) 2015 Kyle Hollins Wray, University of Massachusetts
 
     Permission is hereby granted, free of charge, to any person obtaining a copy of
     this software and associated documentation files (the "Software"), to deal in
@@ -26,6 +26,8 @@ import os.path
 import sys
 
 sys.path.append(os.path.join(os.path.dirname(os.path.realpath(__file__))))
+import nova_mdp_value_function as nmvf
+import mdp_value_function as mvf
 
 # Check if we need to create the nova variable. If so, import the correct library
 # file depending on the platform.
@@ -56,35 +58,37 @@ class NovaMDP(ct.Structure):
                 ("S", ct.POINTER(ct.c_int)),
                 ("T", ct.POINTER(ct.c_float)),
                 ("R", ct.POINTER(ct.c_float)),
+                ("currentHorizon", ct.c_uint),
+                ("V", ct.POINTER(ct.c_float)),
+                ("VPrime", ct.POINTER(ct.c_float)),
+                ("pi", ct.POINTER(ct.c_uint)),
+                ("ne", ct.c_uint),
+                ("expanded", ct.POINTER(ct.c_int)),
                 ("d_goals", ct.POINTER(ct.c_uint)),
                 ("d_S", ct.POINTER(ct.c_int)),
                 ("d_T", ct.POINTER(ct.c_float)),
                 ("d_R", ct.POINTER(ct.c_float)),
+                ("d_V", ct.POINTER(ct.c_float)),
+                ("d_VPrime", ct.POINTER(ct.c_float)),
+                ("d_pi", ct.POINTER(ct.c_uint)),
+                ("d_expanded", ct.POINTER(ct.c_int)),
                 ]
 
 
-# Functions from 'mdp_model_gpu.h'.
-_nova.mdp_initialize_cpu.argtypes = (ct.POINTER(NovaMDP),
-                                     ct.c_uint,     # n
-                                     ct.c_uint,     # ns
-                                     ct.c_uint,     # m
-                                     ct.c_float,    # gamma
-                                     ct.c_uint,     # horizon
-                                     ct.c_float,    # epsilon
-                                     ct.c_uint,     # s0
-                                     ct.c_uint)     # ng
-_nova.mdp_uninitialize_cpu.argtypes = tuple([ct.POINTER(NovaMDP)])
+_nova.mdp_vi_complete_cpu.argtypes = (ct.POINTER(NovaMDP),
+                                    ct.POINTER(ct.c_float),                         # Vinitial
+                                    ct.POINTER(ct.POINTER(mvf.MDPValueFunction)))   # policy
 
+_nova.mdp_vi_complete_gpu.argtypes = (ct.POINTER(NovaMDP),
+                                    ct.c_uint,                                      # numThreads
+                                    ct.POINTER(ct.c_float),                         # Vinitial
+                                    ct.POINTER(ct.POINTER(mvf.MDPValueFunction)))   # policy
 
-# Functions from 'mdp_model_gpu.h'.
-_nova.mdp_initialize_gpu.argtypes = tuple([ct.POINTER(NovaMDP)])
-_nova.mdp_uninitialize_gpu.argtypes = tuple([ct.POINTER(NovaMDP)])
-_nova.mdp_initialize_successors_gpu.argtypes = tuple([ct.POINTER(NovaMDP)])
-_nova.mdp_uninitialize_successors_gpu.argtypes = tuple([ct.POINTER(NovaMDP)])
-_nova.mdp_initialize_state_transitions_gpu.argtypes = tuple([ct.POINTER(NovaMDP)])
-_nova.mdp_uninitialize_state_transitions_gpu.argtypes = tuple([ct.POINTER(NovaMDP)])
-_nova.mdp_initialize_rewards_gpu.argtypes = tuple([ct.POINTER(NovaMDP)])
-_nova.mdp_uninitialize_rewards_gpu.argtypes = tuple([ct.POINTER(NovaMDP)])
-_nova.mdp_initialize_goals_gpu.argtypes = tuple([ct.POINTER(NovaMDP)])
-_nova.mdp_uninitialize_goals_gpu.argtypes = tuple([ct.POINTER(NovaMDP)])
+_nova.ssp_lao_star_complete_cpu.argtypes = (ct.POINTER(NovaMDP),
+                                    ct.POINTER(ct.c_float),                         # Vinitial
+                                    ct.POINTER(ct.POINTER(mvf.MDPValueFunction)))   # policy
+
+_nova.ssp_rtdp_complete_cpu.argtypes = (ct.POINTER(NovaMDP),
+                                    ct.POINTER(ct.c_float),                         # Vinitial
+                                    ct.POINTER(ct.POINTER(mvf.MDPValueFunction)))   # policy
 

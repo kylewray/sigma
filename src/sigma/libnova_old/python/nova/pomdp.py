@@ -1,6 +1,6 @@
 """ The MIT License (MIT)
 
-    Copyright (c) 2016 Kyle Hollins Wray, University of Massachusetts
+    Copyright (c) 2015 Kyle Hollins Wray, University of Massachusetts
 
     Permission is hereby granted, free of charge, to any person obtaining a copy of
     this software and associated documentation files (the "Software"), to deal in
@@ -49,102 +49,28 @@ class POMDP(npm.NovaPOMDP):
         """ The constructor for the POMDP class. """
 
         # Assign a nullptr for the device-side pointers. These will be set if the GPU is utilized.
-        self.n = int(0)
-        self.ns = int(0)
-        self.m = int(0)
-        self.z = int(0)
-        self.r = int(0)
-        self.rz = int(0)
-        self.gamma = float(0.9)
-        self.horizon = int(1)
-        self.S = ct.POINTER(ct.c_int)()
-        self.T = ct.POINTER(ct.c_float)()
-        self.O = ct.POINTER(ct.c_float)()
-        self.R = ct.POINTER(ct.c_float)()
-        self.Z = ct.POINTER(ct.c_int)()
-        self.B = ct.POINTER(ct.c_float)()
+        self.currentHorizon = int(0)
+        self.BTilde = ct.POINTER(ct.c_uint)()
+        self.Gamma = ct.POINTER(ct.c_float)()
+        self.GammaPrime = ct.POINTER(ct.c_float)()
+        self.pi = ct.POINTER(ct.c_uint)()
+        self.piPrime = ct.POINTER(ct.c_uint)()
         self.d_S = ct.POINTER(ct.c_int)()
         self.d_T = ct.POINTER(ct.c_float)()
         self.d_O = ct.POINTER(ct.c_float)()
         self.d_R = ct.POINTER(ct.c_float)()
         self.d_Z = ct.POINTER(ct.c_int)()
         self.d_B = ct.POINTER(ct.c_float)()
+        self.d_Gamma = ct.POINTER(ct.c_float)()
+        self.d_GammaPrime = ct.POINTER(ct.c_float)()
+        self.d_pi = ct.POINTER(ct.c_uint)()
+        self.d_piPrime = ct.POINTER(ct.c_uint)()
+        self.d_alphaBA = ct.POINTER(ct.c_float)()
 
-        # Additional useful variables not in the structure.
+        # Additional informative variables.
         self.Rmin = None
         self.Rmax = None
-
-        self.cpuIsInitialized = False
-        self.gpuIsInitialized = False
-
-    def __del__(self):
-        """ The deconstructor for the POMDP class. """
-
-        self.uninitialize_gpu()
-        self.uninitialize()
-
-    def initialize(self, n, ns, m, z, r, rz, gamma, horizon):
-        """ Initialize the POMDP's internal arrays, allocating memory.
-
-            Parameters:
-                n       --  The number of states.
-                ns      --  The maximum number of successors.
-                m       --  The number of actions.
-                z       --  The number of observations.
-                r       --  The number of beliefs.
-                rz      --  The maximum number of non-zero values in belief points.
-                gamma   --  The discount factor between 0 and 1.
-                horizon --  The positive value for the horizon.
-        """
-
-        if self.cpuIsInitialized:
-            return
-
-        result = npm._nova.pomdp_initialize_cpu(self, n, ns, m, z, r, rz, gamma, horizon)
-        if result != 0:
-            print("Failed to initialize the POMDP.")
-            raise Exception()
-
-        self.cpuIsInitialized = True
-
-    def uninitialize(self):
-        """ Uninitialize the POMDP's internal arrays, freeing memory. """
-
-        if not self.cpuIsInitialized:
-            return
-
-        result = npm._nova.pomdp_uninitialize_cpu(self)
-        if result != 0:
-            print("Failed to uninitialize the POMDP.")
-            raise Exception()
-
-        self.cpuIsInitialized = False
-
-    def initialize_gpu(self):
-        """ Initialize the GPU variables. This only needs to be called if GPU algorithms are used. """
-
-        if self.gpuIsInitialized:
-            return
-
-        result = npm._nova.pomdp_initialize_gpu(self)
-        if result != 0:
-            print("Failed to initialize the 'nova' library's GPU variables for the POMDP.")
-            raise Exception()
-
-        self.gpuIsInitialized = True
-
-    def uninitialize_gpu(self):
-        """ Uninitialize the GPU variables. This only needs to be called if GPU algorithms are used. """
-
-        if not self.gpuIsInitialized:
-            return
-
-        result = npm._nova.pomdp_uninitialize_gpu(self)
-        if result != 0:
-            print("Failed to initialize the 'nova' library's GPU variables for the POMDP.")
-            raise Exception()
-
-        self.gpuIsInitialized = False
+        self.epsilon = 0.01
 
     def load(self, filename, filetype='cassandra', scalarize=lambda x: x[0]):
         """ Load a POMDP file given the filename and optionally the file type.
@@ -156,11 +82,6 @@ class POMDP(npm.NovaPOMDP):
                                 Default returns the first reward.
         """
 
-        # Before anything, uninitialize the current POMDP.
-        self.uninitialize_gpu()
-        self.uninitialize()
-
-        # Now load the file based on the desired file type.
         fileLoader = fl.FileLoader()
 
         if filetype == 'cassandra':
@@ -171,35 +92,35 @@ class POMDP(npm.NovaPOMDP):
             print("Invalid file type '%s'." % (filetype))
             raise Exception()
 
-        # Allocate the memory on the C-side. Note: Allocating on the Python-side will create managed pointers.
-        self.initialize(fileLoader.n, fileLoader.ns, fileLoader.m,
-                        fileLoader.z, fileLoader.r, fileLoader.rz,
-                        fileLoader.gamma, fileLoader.horizon)
+        self.n = fileLoader.n
+        self.ns = fileLoader.ns
+        self.m = fileLoader.m
+        self.z = fileLoader.z
+        self.r = fileLoader.r
+        self.rz = fileLoader.rz
 
-        # Flatten all the file loader data.
-        fileLoader.S = fileLoader.S.flatten()
-        fileLoader.T = fileLoader.T.flatten()
-        fileLoader.O = fileLoader.O.flatten()
-        fileLoader.R = fileLoader.R.flatten()
-        fileLoader.Z = fileLoader.Z.flatten()
-        fileLoader.B = fileLoader.B.flatten()
-
-        # Copy all of the variables' data into these arrays.
-        for i in range(self.n * self.m * self.ns):
-            self.S[i] = fileLoader.S[i]
-            self.T[i] = fileLoader.T[i]
-        for i in range(self.m * self.n * self.z):
-            self.O[i] = fileLoader.O[i]
-        for i in range(self.n * self.m):
-            self.R[i] = fileLoader.R[i]
-        for i in range(self.r * self.rz):
-            self.Z[i] = fileLoader.Z[i]
-            self.B[i] = fileLoader.B[i]
+        self.gamma = fileLoader.gamma
+        self.horizon = fileLoader.horizon
+        self.epsilon = fileLoader.epsilon
 
         self.Rmin = fileLoader.Rmin
         self.Rmax = fileLoader.Rmax
 
-    def expand(self, method='random', numBeliefsToAdd=1000, pemaPolicy=None, pemaAlgorithm=None):
+        array_type_nmns_int = ct.c_int * (self.n * self.m * self.ns)
+        array_type_nmns_float = ct.c_float * (self.n * self.m * self.ns)
+        array_type_mnz_float = ct.c_float * (self.m * self.n * self.z)
+        array_type_nm_float = ct.c_float * (self.n * self.m)
+        array_type_rrz_int = ct.c_int * (self.r * self.rz)
+        array_type_rrz_float = ct.c_float * (self.r * self.rz)
+
+        self.S = array_type_nmns_int(*fileLoader.S.flatten())
+        self.T = array_type_nmns_float(*fileLoader.T.flatten())
+        self.O = array_type_mnz_float(*fileLoader.O.flatten())
+        self.R = array_type_nm_float(*fileLoader.R.flatten())
+        self.Z = array_type_rrz_int(*fileLoader.Z.flatten())
+        self.B = array_type_rrz_float(*fileLoader.B.flatten())
+
+    def expand(self, method='random', numBeliefsToAdd=1000, Gamma=None):
         """ Expand the belief points by, for example, PBVI's original method, PEMA, or Perseus' random method.
 
             Parameters:
@@ -210,44 +131,94 @@ class POMDP(npm.NovaPOMDP):
                                             'pema'              Point-based Error Minimization Algorithm (PEMA).
                 numBeliefsToAdd     --  Optionally define the number of belief points to add. Used by the
                                         'random'. Default is 1000.
-                pemaPolicy          --  Optionally use any policy object for PEMA. Default is None.
-                pemaAlgorithm       --  Optionally use any POMDP algorithm object for PEMA. Only used if
-                                        the pemaPolicy is None. Default is None.
+                Gamma               --  Optionally define the alpha-vectors of the soultion (r-n array). Used by the
+                                        'pema' method. Default is None, which will automatically solve the POMDP.
         """
 
         if method not in ["random", "distinct_beliefs", "pema"]:
             print("Failed to expand. Method '%s' is not defined." % (method))
             raise Exception()
 
-        if method == "random":
-            npm._nova.pomdp_expand_random_cpu(self, numBeliefsToAdd)
-        elif method == "distinct_beliefs":
-            npm._nova.pomdp_expand_distinct_beliefs_cpu(self)
+        # Non-random methods add different quantities of belief points.
+        if method == "distinct_beliefs":
+            numBeliefsToAdd = self.r
         elif method == "pema":
-            if pemaPolicy is None:
-                pemaPolicy = pemaAlgorithm.solve()
-            npm._nova.pomdp_expand_pema_cpu(self, ct.byref(pemaPolicy))
+            numBeliefsToAdd = 1
 
-    def sigma_approximate(self, numDesiredNonZeroValues=1):
+        array_type_uint = ct.c_uint * (1)
+        array_type_ndbpn_float = ct.c_float * (numBeliefsToAdd * self.n)
+
+        maxNonZeroValues = array_type_uint(*np.array([0]))
+        Bnew = array_type_ndbpn_float(*np.zeros(numBeliefsToAdd * self.n))
+
+        if method == "random":
+            npm._nova.pomdp_expand_random_cpu(self, numBeliefsToAdd, maxNonZeroValues, Bnew)
+        elif method == "distinct_beliefs":
+            npm._nova.pomdp_expand_distinct_beliefs_cpu(self, maxNonZeroValues, Bnew)
+        elif method == "pema":
+            if Gamma is None:
+                policy, timings = self.solve()
+
+            npm._nova.pomdp_expand_pema_cpu(self, ct.byref(policy), maxNonZeroValues, Bnew)
+
+        # Reconstruct the compressed Z and B.
+        rPrime = int(self.r + numBeliefsToAdd)
+        rzPrime = max(self.rz, int(maxNonZeroValues[0]))
+
+        array_type_rrz_int = ct.c_int * (rPrime * rzPrime)
+        array_type_rrz_float = ct.c_float * (rPrime * rzPrime)
+
+        ZPrime = array_type_rrz_int(*-np.ones(rPrime * rzPrime).astype(int))
+        BPrime = array_type_rrz_float(*np.zeros(rPrime * rzPrime).astype(float))
+
+        for i in range(self.r):
+            for j in range(self.rz):
+                ZPrime[i * rzPrime + j] = self.Z[i * self.rz + j]
+                BPrime[i * rzPrime + j] = self.B[i * self.rz + j]
+
+        for i in range(numBeliefsToAdd):
+            j = 0
+            for s in range(self.n):
+                if Bnew[i * self.n + s] > 0.0:
+                    ZPrime[(self.r + i) * rzPrime + j] = s
+                    BPrime[(self.r + i) * rzPrime + j] = Bnew[i * self.n + s]
+                    j += 1
+
+        self.r = rPrime
+        self.rz = rzPrime
+        self.Z = ZPrime
+        self.B = BPrime
+
+    def sigma_approximate(self, rz=1):
         """ Perform the sigma-approximation algorithm on the current set of beliefs.
 
             Parameters:
-                numDesiredNonZeroValues     --  The desired maximal number of non-zero values in the beliefs.
-
+                rz  --  The desired maximal number of non-zero values in the belief vectors.
             Returns:
                 The sigma = min_{b in B} sigma_b.
         """
 
-        sigma = ct.c_float(0.0)
+        array_type_rrz_float = ct.c_float * (self.r * rz)
+        array_type_rrz_int = ct.c_int * (self.r * rz)
 
-        result = npm._nova.pomdp_sigma_cpu(self, numDesiredNonZeroValues, ct.byref(sigma))
+        array_type_1_float = ct.c_float * (1)
+
+        Bnew = array_type_rrz_float(*np.zeros(self.r * rz).astype(float))
+        Znew = array_type_rrz_int(*-np.ones(self.r * rz).astype(int))
+
+        sigma = array_type_1_float(*np.array([0.0]).astype(float))
+
+        result = npm._nova.pomdp_sigma_cpu(self, rz, Bnew, Znew, sigma)
         if result != 0:
             print("Failed to perform sigma-approximation.")
             raise Exception()
 
-        return sigma.value
+        self.rz = rz
+        self.B = Bnew
+        self.Z = Znew
 
-    # TODO: REMOVE THIS. IT HAS BEEN REPLACED BY SEPARATE CLASSES.
+        return sigma[0]
+
     def solve(self, algorithm='pbvi', process='gpu', numThreads=1024):
         """ Solve the POMDP using the nova Python wrapper.
 
@@ -337,34 +308,6 @@ class POMDP(npm.NovaPOMDP):
 
         return policy, timing
 
-    def belief_update(self, b, a, o):
-        """ Perform a belief update, given belief, action, and observation.
-
-            Parameters:
-                b   --  The current belief (numpy n-array).
-                a   --  The action (index) taken.
-                o   --  The resulting observation (index).
-
-            Returns:
-                The new belief (numpy n-array).
-        """
-
-        array_type_n_float = ct.c_float * (self.n)
-
-        b = array_type_n_float(*b.flatten())
-        a = int(a)
-        o = int(o)
-
-        #bp = array_type_n_float(*np.zeros(self.n).flatten())
-        bp = ct.POINTER(ct.c_float)()
-
-        result = npm._nova.pomdp_belief_update_cpu(self, b, a, o, ct.byref(bp))
-        if result != 0:
-            print("Failed to perform a belief update on the CPU.")
-            raise Exception()
-
-        return np.array([bp[s] for s in range(self.n)])
-
     def __str__(self):
         """ Return the string of the POMDP values akin to the raw file format.
 
@@ -400,4 +343,31 @@ class POMDP(npm.NovaPOMDP):
                     for i in range(self.r * self.rz)]).reshape((self.r, self.rz)))) + "\n\n"
 
         return result
+
+    def belief_update(self, b, a, o):
+        """ Perform a belief update, given belief, action, and observation.
+
+            Parameters:
+                b   --  The current belief (numpy n-array).
+                a   --  The action (index) taken.
+                o   --  The resulting observation (index).
+
+            Returns:
+                The new belief (numpy n-array).
+        """
+
+        array_type_n_float = ct.c_float * (self.n)
+
+        b = array_type_n_float(*b.flatten())
+        a = int(a)
+        o = int(o)
+
+        bp = array_type_n_float(*np.zeros(self.n).flatten())
+
+        result = npm._nova.pomdp_utilities_belief_update_cpu(self, b, a, o, bp)
+        if result != 0:
+            print("Failed to perform a belief update on the CPU.")
+            raise Exception()
+
+        return np.array([bp[s] for s in range(self.n)])
 

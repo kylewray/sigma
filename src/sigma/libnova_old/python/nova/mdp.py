@@ -1,6 +1,6 @@
 """ The MIT License (MIT)
 
-    Copyright (c) 2016 Kyle Hollins Wray, University of Massachusetts
+    Copyright (c) 2015 Kyle Hollins Wray, University of Massachusetts
 
     Permission is hereby granted, free of charge, to any person obtaining a copy of
     this software and associated documentation files (the "Software"), to deal in
@@ -30,11 +30,11 @@ import numpy as np
 import csv
 
 sys.path.append(os.path.join(os.path.dirname(os.path.realpath(__file__))))
-
-import file_loader as fl
-import mdp_value_function as mvf
-
 import nova_mdp as nm
+import file_loader as fl
+
+import nova_mdp_value_function as nmvf
+import mdp_value_function as mvf
 
 
 class MDP(nm.NovaMDP):
@@ -48,111 +48,28 @@ class MDP(nm.NovaMDP):
     def __init__(self):
         """ The constructor for the MDP class. """
 
-        # Assign a nullptr for the device-side pointers and initial values for the structure variables.
-        self.n = int(0)
-        self.ns = int(0)
-        self.m = int(0)
-        self.gamma = float(0.9)
-        self.horizon = int(1)
-        self.epsilon = float(0.01)
-        self.s0 = int(0)
+        # Assign a nullptr for the device-side pointers. These will be set if the GPU is utilized.
         self.ng = int(0)
         self.goals = ct.POINTER(ct.c_uint)()
-        self.S = ct.POINTER(ct.c_int)()
-        self.T = ct.POINTER(ct.c_float)()
-        self.R = ct.POINTER(ct.c_float)()
+        self.currentHorizon = int(0)
+        self.V = ct.POINTER(ct.c_float)()
+        self.VPrime = ct.POINTER(ct.c_float)()
+        self.pi = ct.POINTER(ct.c_uint)()
+        self.ne = int(0)
+        self.expanded = ct.POINTER(ct.c_int)()
         self.d_goals = ct.POINTER(ct.c_uint)()
         self.d_S = ct.POINTER(ct.c_int)()
         self.d_T = ct.POINTER(ct.c_float)()
         self.d_R = ct.POINTER(ct.c_float)()
+        self.d_V = ct.POINTER(ct.c_float)()
+        self.d_VPrime = ct.POINTER(ct.c_float)()
+        self.d_pi = ct.POINTER(ct.c_uint)()
+        self.d_expanded = ct.POINTER(ct.c_int)()
 
-        # Additional useful variables not in the structure.
+        # Additional informative variables.
         self.Rmin = None
         self.Rmax = None
-
-        self.cpuIsInitialized = False
-        self.gpuIsInitialized = False
-
-    def __del__(self):
-        """ The deconstructor for the MDP class. """
-
-        self.uninitialize_gpu()
-        self.uninitialize()
-
-    def initialize(self, n, ns, m, gamma, horizon, epsilon, s0, ng):
-        """ Initialize the MDP object, allocating array memory, given the parameters.
-
-        Parameters:
-            n       --  The number of states.
-            ns      --  The maximum number of successor states.
-            m       --  The number of actions.
-            gamma   --  The discount factor between 0 and 1.
-            horizon --  The positive integer for the horizon.
-            epsilon --  The convergence criterion for some algorithms.
-            s0      --  The initial state index (if an SSP MDP).
-            ng      --  The positive integer for number of goals (if an SSP MDP) or 0 (otherwise).
-        """
-
-        if self.cpuIsInitialized:
-            return
-
-        result = nm._nova.mdp_initialize_cpu(self, n, ns, m, gamma, horizon, epsilon, s0, ng)
-        if result != 0:
-            print("Failed to initialize the MDP.")
-            raise Exception()
-
-        self.cpuIsInitialized = True
-
-    def uninitialize(self):
-        """ Uninitialize the MDP object, freeing the allocated memory. """
-
-        if not self.cpuIsInitialized:
-            return
-
-        result = nm._nova.mdp_uninitialize_cpu(self)
-        if result != 0:
-            print("Failed to uninitialize the MDP.")
-            raise Exception()
-
-        self.cpuIsInitialized = False
-
-    def initialize_gpu(self):
-        """ Initialize the GPU variables. This only needs to be called if GPU algorithms are used. """
-
-        if self.gpuIsInitialized:
-            return
-
-        result = nm._nova.mdp_initialize_successors_gpu(self)
-        result += nm._nova.mdp_initialize_state_transitions_gpu(self)
-        result += nm._nova.mdp_initialize_rewards_gpu(self)
-
-        if self.ng > 0:
-            result += nm._nova.mdp_initialize_goals_gpu(self)
-
-        if result != 0:
-            print("Failed to initialize the 'nova' library's GPU variables for the MDP.")
-            raise Exception()
-
-        self.gpuIsInitialized = True
-
-    def uninitialize_gpu(self):
-        """ Uninitialize the GPU variables. This only needs to be called if GPU algorithms are used. """
-
-        if not self.gpuIsInitialized:
-            return
-
-        result = nm._nova.mdp_uninitialize_successors_gpu(self)
-        result += nm._nova.mdp_uninitialize_state_transitions_gpu(self)
-        result += nm._nova.mdp_uninitialize_rewards_gpu(self)
-
-        if self.ng > 0:
-            result += nm._nova.mdp_uninitialize_goals_gpu(self)
-
-        if result != 0:
-            print("Failed to uninitialize the 'nova' library's GPU variables for the MDP.")
-            raise Exception()
-
-        self.gpuIsInitialized = False
+        self.epsilon = 0.01
 
     def load(self, filename, filetype='cassandra', scalarize=lambda x: x[0]):
         """ Load a Multi-Objective POMDP file given the filename and optionally the file type.
@@ -164,11 +81,6 @@ class MDP(nm.NovaMDP):
                                 Default returns the first reward.
         """
 
-        # Before anything, uninitialize the current MDP.
-        self.uninitialize_gpu()
-        self.uninitialize()
-
-        # Now load the file based on the desired file type.
         fileLoader = fl.FileLoader()
 
         if filetype == 'cassandra':
@@ -179,30 +91,30 @@ class MDP(nm.NovaMDP):
             print("Invalid file type '%s'." % (filetype))
             raise Exception()
 
-        # Allocate the memory on the C-side. Note: Allocating on the Python-side will create managed pointers.
-        self.initialize(fileLoader.n, fileLoader.ns, fileLoader.m,
-                        fileLoader.gamma, fileLoader.horizon, fileLoader.epsilon,
-                        fileLoader.s0, fileLoader.ng)
+        self.n = fileLoader.n
+        self.ns = fileLoader.ns
+        self.m = fileLoader.m
 
-        # Flatten all of the file loader data.
-        fileLoader.goals = fileLoader.goals.flatten()
-        fileLoader.S = fileLoader.S.flatten()
-        fileLoader.T = fileLoader.T.flatten()
-        fileLoader.R = fileLoader.R.flatten()
+        self.s0 = fileLoader.s0
+        self.ng = fileLoader.ng
 
-        # Copy all of the variables' data into these arrays.
-        for i in range(self.ng):
-            self.goals[i] = fileLoader.goals[i]
-        for i in range(self.n * self.m * self.ns):
-            self.S[i] = fileLoader.S[i]
-            self.T[i] = fileLoader.T[i]
-        for i in range(self.n * self.m):
-            self.R[i] = fileLoader.R[i]
+        self.gamma = fileLoader.gamma
+        self.horizon = fileLoader.horizon
+        self.epsilon = fileLoader.epsilon
 
         self.Rmin = fileLoader.Rmin
         self.Rmax = fileLoader.Rmax
 
-    # TODO: REMOVE THIS. IT HAS BEEN REPLACED BY SEPARATE CLASSES.
+        array_type_ng_uint = ct.c_uint * (self.ng)
+        array_type_nmns_int = ct.c_int * (self.n * self.m * self.ns)
+        array_type_nmns_float = ct.c_float * (self.n * self.m * self.ns)
+        array_type_nm_float = ct.c_float * (self.n * self.m)
+
+        self.goals = array_type_ng_uint(*fileLoader.goals.flatten())
+        self.S = array_type_nmns_int(*fileLoader.S.flatten())
+        self.T = array_type_nmns_float(*fileLoader.T.flatten())
+        self.R = array_type_nm_float(*fileLoader.R.flatten())
+
     def solve(self, algorithm='vi', process='gpu', numThreads=1024, heuristic=None):
         """ Solve the MDP using the nova Python wrapper.
 
