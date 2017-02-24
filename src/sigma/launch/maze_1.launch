@@ -1,6 +1,6 @@
 <?xml version="1.0" ?>
 <launch>
-  <arg name="map_name" default="$(find sigma)/maps/simple.yaml" />
+  <arg name="map_name" default="$(find sigma)/maps/maze_1.yaml" />
 
   <include file="$(find sigma)/launch/rviz_nav.launch" />
 

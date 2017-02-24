@@ -2,7 +2,7 @@
 <launch>
   <arg name="map_name" default="$(find sigma)/maps/simple.yaml" />
 
-  <include file="$(find sigma)/launch/rviz_nav.launch" />
+  <include file="$(find kobuki_node)/launch/minimal.launch" />
 
   <node pkg="map_server" type="map_server" name="map_server" output="screen" args="$(arg map_name)" />
 

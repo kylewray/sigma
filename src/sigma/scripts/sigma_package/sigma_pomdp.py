@@ -51,6 +51,8 @@ import itertools as it
 import ctypes as ct
 import numpy as np
 
+import time
+
 
 SIGMA_OCCUPANCY_GRID_OBSTACLE_THRESHOLD = 50
 SIGMA_GOAL_THRESHOLD = 0.001
@@ -139,36 +141,36 @@ class SigmaPOMDP(object):
 
         subOccupancyGridTopic = rospy.get_param("~sub_occupancy_grid", "/map")
         self.subOccupancyGrid = rospy.Subscriber(subOccupancyGridTopic,
-                                                OccupancyGrid,
-                                                self.sub_occupancy_grid)
+                                                 OccupancyGrid,
+                                                 self.sub_occupancy_grid)
 
         subMapPoseEstimateTopic = rospy.get_param("~sub_map_pose_estimate", "/initialpose")
         self.subMapPoseEstimate = rospy.Subscriber(subMapPoseEstimateTopic,
-                                                PoseWithCovarianceStamped,
-                                                self.sub_map_pose_estimate)
+                                                   PoseWithCovarianceStamped,
+                                                   self.sub_map_pose_estimate)
 
         subMapNavGoalTopic = rospy.get_param("~sub_map_nav_goal", "/move_base_simple/goal")
         self.subMapNavGoal = rospy.Subscriber(subMapNavGoalTopic,
-                                                PoseStamped,
-                                                self.sub_map_nav_goal)
+                                              PoseStamped,
+                                              self.sub_map_nav_goal)
 
         pubModelUpdateTopic = rospy.get_param("~model_update", "~model_update")
         self.pubModelUpdate = rospy.Publisher(pubModelUpdateTopic, ModelUpdate, queue_size=10)
 
         srvGetActionTopic = rospy.get_param("~get_action", "~get_action")
         self.srvGetAction = rospy.Service(srvGetActionTopic,
-                                                GetAction,
-                                                self.srv_get_action)
+                                          GetAction,
+                                          self.srv_get_action)
 
         srvGetBeliefTopic = rospy.get_param("~get_belief", "~get_belief")
         self.srvGetBelief = rospy.Service(srvGetBeliefTopic,
-                                                GetBelief,
-                                                self.srv_get_belief)
+                                          GetBelief,
+                                          self.srv_get_belief)
 
         srvUpdateBeliefTopic = rospy.get_param("~update_belief", "~update_belief")
         self.srvUpdateBelief = rospy.Service(srvUpdateBeliefTopic,
-                                                UpdateBelief,
-                                                self.srv_update_belief)
+                                             UpdateBelief,
+                                             self.srv_update_belief)
 
         pubVisualizationMarkerTopic = rospy.get_param("~visualization_marker",
                                                       "~visualization_marker")
@@ -270,6 +272,10 @@ class SigmaPOMDP(object):
 
         self.pubMarker.publish(marker)
 
+        # Put a 50ms pause here because publishing the delete all and update below sometimes
+        # happen out of order without a small pause...
+        time.sleep(0.05)
+
         markerArray = list()
 
         for s, state in enumerate(self.pomdp.states):
@@ -285,7 +291,7 @@ class SigmaPOMDP(object):
             x, y = self.map_to_world(state[0] + 0.5, state[1] + 0.5)
             marker.pose.position.x = x
             marker.pose.position.y = y
-            marker.pose.position.z = 0.1
+            marker.pose.position.z = 0.015
 
             marker.pose.orientation.x = 0.0
             marker.pose.orientation.y = 0.0
@@ -296,10 +302,17 @@ class SigmaPOMDP(object):
             marker.scale.y = self.mapResolution * self.mapHeight / self.gridHeight
             marker.scale.z = 0.1
 
-            marker.color.a = 0.25
-            marker.color.r = self.belief[s]
-            marker.color.g = 0.0
-            marker.color.b = 0.0
+            # Increase to show more probabilities.
+            alpha = self.belief[s]
+            alphaLog = 0.0
+            alphaWeight = 5.0
+            if alpha > 0.001 and math.log(alpha) >= -alphaWeight:
+                alphaLog = (math.log(alpha) + alphaWeight) / alphaWeight
+
+            marker.color.a = alphaLog
+            marker.color.r = 1.0
+            marker.color.g = 1.0
+            marker.color.b = 1.0
 
             markerArray += [marker]
 
@@ -513,9 +526,18 @@ class SigmaPOMDP(object):
 
         for a, action in enumerate(self.pomdp.actions):
             for sp, statePrime in enumerate(self.pomdp.states):
+                ax, ay = action
+                spx, spy = statePrime
+
+                x = max(0, min(self.gridWidth - 1, spx + ax))
+                y = max(0, min(self.gridHeight - 1, spy + ay))
+                adjustedState = (x, y)
+
+                probability = (self.stateObstaclePercentage[statePrime] + self.stateObstaclePercentage[adjustedState]) / 2.0
+
                 # The probability of observing a hit at a state is (assumed to be) equal to the percentage of obstacles in the state.
-                O[a][sp][0] = 1.0 - self.stateObstaclePercentage[statePrime]
-                O[a][sp][1] = self.stateObstaclePercentage[statePrime]
+                O[a][sp][0] = 1.0 - probability
+                O[a][sp][1] = probability
 
         array_type_mnz_float = ct.c_float * (self.pomdp.m * self.pomdp.n * self.pomdp.z)
         self.pomdp.O = array_type_mnz_float(*np.array(O).flatten())
@@ -527,6 +549,10 @@ class SigmaPOMDP(object):
         #print(np.array(S))
         #print(np.array(T))
         #print(np.array(O))
+        #for a, action in enumerate(self.pomdp.actions):
+        #    for sp, statePrime in enumerate(self.pomdp.states):
+        #        print("O(%i, %i, [0, 1]) = [%.1f, %.1f]" % (a, sp, O[a][sp][0], O[a][sp][1]))
+        #        #print("O(%s, %s, %s) = [%.1f, %.1f]" % (str(self.pomdp.actions[a]), str(self.pomdp.states[sp]), str(self.pomdp.observations), O[a][sp][0], O[a][sp][1]))
 
         self.occupancyGridMsg = None
 
