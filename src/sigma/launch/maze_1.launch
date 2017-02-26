@@ -17,7 +17,7 @@
     <param name="base_probability_of_action_success" value="0.9" />
     <param name="penalty_for_freespace" value="0.05" />
     <!-- <param name="number_of_beliefs_to_add" value="1000" /> -->
-    <param name="number_of_belief_expansions" value="1" />
+    <param name="number_of_belief_expansions" value="2" />
 
     <param name="number_of_updates_before_providing_actions" value="100" />
 
@@ -47,7 +47,7 @@
 
     <param name="at_position_goal_threshold" value="0.05" />
     <param name="at_theta_goal_threshold" value="0.05" />
-    <param name="recovery_distance_threshold" value="0.05" />
+    <param name="recovery_distance_threshold" value="0.125" />
 
     <param name="pid_integrator_bounds" value="0.05" />
 

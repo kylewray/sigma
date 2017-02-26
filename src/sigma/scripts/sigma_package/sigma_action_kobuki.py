@@ -353,7 +353,7 @@ class SigmaActionKobuki(object):
             srvUpdateBelief = rospy.ServiceProxy(self.srvUpdateBeliefTopic, UpdateBelief)
             res = srvUpdateBelief(self.relGoalX, self.relGoalY, observedBumpOrEdge)
             if not res.success:
-                #rospy.logwarn("Error[SigmaActionKobuki.update_pomdp]: Failed to update belief.")
+                rospy.logwarn("Error[SigmaActionKobuki.update_pomdp]: Failed to update belief.")
                 return False
         except rospy.ServiceException:
             rospy.logerr("Error[SigmaActionKobuki.update_pomdp]: Service exception when updating belief.")

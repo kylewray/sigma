@@ -1,6 +1,6 @@
 <?xml version="1.0" ?>
 <launch>
-  <arg name="map_name" default="$(find sigma)/maps/umass.yaml" />
+  <arg name="map_name" default="$(find sigma)/maps/maze_2.yaml" />
 
   <include file="$(find sigma)/launch/rviz_nav.launch" />
 
@@ -11,17 +11,15 @@
   <node pkg="sigma" type="sigma_pomdp_node" name="sigma_pomdp_node" output="screen">
     <param name="update_rate" value="10" />
 
-    <!-- <param name="grid_width" value="94" />
-    <param name="grid_height" value="31" /> -->
-    <param name="grid_width" value="30" />
-    <param name="grid_height" value="10" />
+    <param name="grid_width" value="6" />
+    <param name="grid_height" value="6" />
 
     <param name="base_probability_of_action_success" value="0.9" />
     <param name="penalty_for_freespace" value="0.05" />
-    <!-- <param name="number_of_beliefs_to_add" value="10000" /> -->
+    <!-- <param name="number_of_beliefs_to_add" value="1000" /> -->
     <param name="number_of_belief_expansions" value="2" />
 
-    <param name="number_of_updates_before_providing_actions" value="300" />
+    <param name="number_of_updates_before_providing_actions" value="36" />
 
     <param name="sub_occupancy_grid" value="/map" />
 
@@ -57,7 +55,7 @@
     <param name="pid_theta_Ki" value="0.5" />
     <param name="pid_theta_Kd" value="0.5" />
 
-    <param name="desired_velocity" value="0.4" />
+    <param name="desired_velocity" value="0.2" />
 
     <param name="sub_kobuki_odom" value="/odom" />
     <param name="sub_kobuki_bump" value="/evt_bump" />

@@ -275,6 +275,11 @@ class SigmaPOMDP(object):
         # happen out of order without a small pause...
         time.sleep(0.05)
 
+        # Quickly compute the top k belief states; these will be colored blue.
+        k = 3
+        topStates = sorted(range(len(self.belief)), key=lambda s: self.belief[s], reverse=True)
+        topStates = topStates[0:k]
+
         markerArray = list()
 
         for s, state in enumerate(self.pomdp.states):
@@ -309,9 +314,16 @@ class SigmaPOMDP(object):
                 alphaLog = (math.log(alpha) + alphaWeight) / alphaWeight
 
             marker.color.a = alphaLog
-            marker.color.r = 1.0
-            marker.color.g = 1.0
-            marker.color.b = 1.0
+
+            # Color the top k states a different color.
+            if s in topStates:
+                marker.color.r = 0.2
+                marker.color.g = 0.2
+                marker.color.b = 1.0
+            else:
+                marker.color.r = 1.0
+                marker.color.g = 1.0
+                marker.color.b = 1.0
 
             markerArray += [marker]
 
@@ -459,14 +471,33 @@ class SigmaPOMDP(object):
 
         for s, state in enumerate(self.pomdp.states):
             for a, action in enumerate(self.pomdp.actions):
-                # First off, if the action is (0, 0) (i.e., no movement), then it automatically succeeds.
+                # First, if the action is (0, 0) (i.e., no movement), then it automatically succeeds.
                 if action == (0, 0):
                     S[s][a][0] = s
                     T[s][a][0] = 1.0
                     continue
 
-                # Second off, if the agent is *in* an obstacle, then self-loop.
+                # Second, if the agent is *in* an obstacle, then self-loop.
                 if self.stateObstaclePercentage[state] == 1.0:
+                    S[s][a][0] = s
+                    T[s][a][0] = 1.0
+                    continue
+
+                # Third, if any drifting is guaranteed to hit an obstacle, then self-loop.
+                diagonalActionDriftStateEntirelyObstacle = False
+                if action[0] != 0 and action[1] != 0:
+                    for i in [0, 1]:
+                        try:
+                            statePrime = (state[0] + driftActions[action][i][0], state[1] + driftActions[action][i][1])
+                            sp = self.pomdp.states.index(statePrime)
+
+                            if self.stateObstaclePercentage[statePrime] == 1.0:
+                                diagonalActionDriftStateEntirelyObstacle = True
+
+                        except ValueError:
+                            continue
+
+                if diagonalActionDriftStateEntirelyObstacle:
                     S[s][a][0] = s
                     T[s][a][0] = 1.0
                     continue
@@ -525,14 +556,21 @@ class SigmaPOMDP(object):
 
         for a, action in enumerate(self.pomdp.actions):
             for sp, statePrime in enumerate(self.pomdp.states):
-                ax, ay = action
                 spx, spy = statePrime
 
-                x = max(0, min(self.gridWidth - 1, spx + ax))
-                y = max(0, min(self.gridHeight - 1, spy + ay))
-                adjustedState = (x, y)
+                probability = self.stateObstaclePercentage[statePrime]
 
-                probability = (self.stateObstaclePercentage[statePrime] + self.stateObstaclePercentage[adjustedState]) / 2.0
+                # For movement actions, add the probability contribution of the
+                # action's and drift-action's states, then normalize.
+                if action != (0, 0):
+                    for ax, ay in [action] + driftActions[action]:
+                        x = max(0, min(self.gridWidth - 1, spx + ax))
+                        y = max(0, min(self.gridHeight - 1, spy + ay))
+                        actionState = (x, y)
+
+                        probability += self.stateObstaclePercentage[actionState]
+
+                    probability /= 4.0
 
                 # The probability of observing a hit at a state is (assumed to be) equal to the percentage of obstacles in the state.
                 O[a][sp][0] = 1.0 - probability
@@ -549,8 +587,8 @@ class SigmaPOMDP(object):
         #print(np.array(O))
         #for a, action in enumerate(self.pomdp.actions):
         #    for sp, statePrime in enumerate(self.pomdp.states):
-        #        print("O(%i, %i, [0, 1]) = [%.1f, %.1f]" % (a, sp, O[a][sp][0], O[a][sp][1]))
-        #        #print("O(%s, %s, %s) = [%.1f, %.1f]" % (str(self.pomdp.actions[a]), str(self.pomdp.states[sp]), str(self.pomdp.observations), O[a][sp][0], O[a][sp][1]))
+        #        print("O(%i, %i, [0, 1]) = [%.2f, %.2f]" % (a, sp, O[a][sp][0], O[a][sp][1]))
+        ##        #print("O(%s, %s, %s) = [%.1f, %.1f]" % (str(self.pomdp.actions[a]), str(self.pomdp.states[sp]), str(self.pomdp.observations), O[a][sp][0], O[a][sp][1]))
 
         self.occupancyGridMsg = None
 

@@ -17,3 +17,12 @@
 
 #roslaunch epic epic_rviz_maze_1.launch
 
+
+# On Robot:
+export ROS_MASTER_URI=http://192.168.0.229:11311
+export ROS_IP=192.168.0.229
+
+# On Host:
+export ROS_MASTER_URI=http://192.168.0.229:11311
+export ROS_IP=192.168.0.226
+
