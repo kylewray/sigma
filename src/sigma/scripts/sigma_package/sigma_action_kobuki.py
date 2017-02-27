@@ -37,7 +37,9 @@ from tf.transformations import euler_from_quaternion
 
 from std_msgs.msg import Empty
 from geometry_msgs.msg import Twist
+from geometry_msgs.msg import PoseStamped
 from nav_msgs.msg import Odometry
+from nav_msgs.msg import Path
 from kobuki_msgs.msg import BumperEvent
 
 from sigma.msg import *
@@ -111,6 +113,10 @@ class SigmaActionKobuki(object):
 
         self.desiredVelocity = rospy.get_param("~desired_velocity", 0.2)
 
+        # Remember the path.
+        self.rawPath = list()
+        self.lastPathPublishTime = rospy.get_rostime()
+
         # Finally, we create variables for the messages.
         self.started = False
         self.resetRequired = False
@@ -120,6 +126,7 @@ class SigmaActionKobuki(object):
         self.subKobukiBump = None
         self.pubKobukiVel = None
         self.pubKobukiResetOdom = None
+        self.pubPath = None
 
     def start(self):
         """ Start the necessary messages to operate the Kobuki. """
@@ -149,6 +156,9 @@ class SigmaActionKobuki(object):
 
         pubKobukiResetOdomTopic = rospy.get_param("~pub_kobuki_reset_odom", "/cmd_reset_odom")
         self.pubKobukiResetOdom = rospy.Publisher(pubKobukiResetOdomTopic, Empty, queue_size=32)
+
+        pubPathTopic = rospy.get_param("~pub_path", "/path")
+        self.pubPath = rospy.Publisher(pubPathTopic, Path, queue_size=32)
 
         self.started = True
 
@@ -183,6 +193,9 @@ class SigmaActionKobuki(object):
 
         self.pidDerivator = 0.0
         self.pidIntegrator = 0.0
+
+        self.rawPath = list()
+        self.lastPathPublishTime = rospy.get_rostime()
 
         self.started = False
 
@@ -259,6 +272,37 @@ class SigmaActionKobuki(object):
             self.move_recovery(msg)
         elif self.check_reached_goal(msg):
             self.move_to_goal(msg)
+
+        self.publish_path(msg)
+
+    def publish_path(self, msg):
+        """ Record the path taken, but only at a certain rate.
+
+            Parameters:
+                msg     --  The Odometry message data.
+        """
+
+        publishRate = 0.2
+        currentTime = rospy.get_rostime()
+
+        if self.lastPathPublishTime.to_sec() + publishRate <= currentTime.to_sec():
+            # Add to raw path with a timestamped pose from odometers.
+            poseStamped = PoseStamped()
+            poseStamped.header.frame_id = rospy.get_param("~sub_kobuki_odom", "/odom")
+            poseStamped.header.stamp = currentTime
+            poseStamped.pose = msg.pose.pose
+
+            self.rawPath += [poseStamped]
+
+            # Create and publish the path.
+            path = Path()
+            path.header.frame_id = rospy.get_param("~sub_kobuki_odom", "/odom")
+            path.header.stamp = currentTime
+            path.poses = self.rawPath
+
+            self.pubPath.publish(path)
+
+            self.lastPathPublishTime = currentTime
 
     def check_recovery(self, msg):
         """ Handle checking and recovering from a bump or edge detection.
