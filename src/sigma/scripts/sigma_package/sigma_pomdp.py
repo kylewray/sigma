@@ -676,11 +676,22 @@ class SigmaPOMDP(object):
 
         rospy.loginfo("Info[SigmaPOMDP.sub_map_pose_estimate]: Completed expansions.")
 
+        # Enable/Disable Sigma Approximation!
+        # Enable/Disable Sigma Approximation!
+        # Enable/Disable Sigma Approximation!
+        sigmaValue = self.pomdp.sigma_approximate(4)
+
+        rospy.loginfo("Info[SigmaPOMDP.sub_map_pose_estimate]: Sigma approximation applied! Sigma is %.3f." % (sigmaValue))
+        # Enable/Disable Sigma Approximation!
+        # Enable/Disable Sigma Approximation!
+        # Enable/Disable Sigma Approximation!
+
         self.uninitialize_algorithm()
         self.initialize_algorithm()
 
         # Set the initial belief to be collapsed at the correct location.
         self.belief = np.array([float(s == sInitialBelief) for s in range(self.pomdp.n)])
+        #self.belief = np.array([1.0 / float(self.pomdp.n) for s in range(self.pomdp.n)])
 
         # Optionally, visualize the belief.
         self.visualize_belief()

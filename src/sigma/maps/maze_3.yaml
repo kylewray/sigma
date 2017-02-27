@@ -1,5 +1,5 @@
 image: maze_3.png
-resolution: 0.08
+resolution: 0.0605
 origin: [-2.4, -2.4, 0.0]
 occupied_thresh: 0.65
 free_thresh: 0.196
