@@ -22,5 +22,5 @@
     CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 """
 
-__all__ = ["sigma_pomdp", "sigma_action_kobuki"]
+__all__ = ["sigma_pomdp", "sigma_kobuki"]
 

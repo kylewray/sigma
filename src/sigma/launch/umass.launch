@@ -11,17 +11,17 @@
   <node pkg="sigma" type="sigma_pomdp_node" name="sigma_pomdp_node" output="screen">
     <param name="update_rate" value="10" />
 
-    <!-- <param name="grid_width" value="94" />
-    <param name="grid_height" value="31" /> -->
-    <param name="grid_width" value="30" />
-    <param name="grid_height" value="10" />
+    <param name="grid_width" value="94" />
+    <param name="grid_height" value="31" />
+    <!-- <param name="grid_width" value="30" />
+    <param name="grid_height" value="10" /> -->
 
     <param name="base_probability_of_action_success" value="0.9" />
     <param name="penalty_for_freespace" value="0.05" />
     <!-- <param name="number_of_beliefs_to_add" value="10000" /> -->
-    <param name="number_of_belief_expansions" value="2" />
+    <param name="number_of_belief_expansions" value="0" />
 
-    <param name="number_of_updates_before_providing_actions" value="300" />
+    <param name="number_of_updates_before_providing_actions" value="1" />
 
     <param name="sub_occupancy_grid" value="/map" />
 
@@ -37,7 +37,7 @@
     <param name="visualization_marker_array" value="~visualization_marker_array" />
   </node>
 
-  <node pkg="sigma" type="sigma_action_kobuki_node" name="sigma_action_kobuki_node" output="screen">
+  <node pkg="sigma" type="sigma_kobuki_node" name="sigma_kobuki_node" output="screen">
     <!-- Note "remap" for commands 'pushes' data from something to something else. Conversely,
          information 'flows' from something to something else. Hence the remapping below. -->
     <remap from="/base_pose_ground_truth" to="/odom" /> <!-- nav_msgs -->
@@ -57,7 +57,7 @@
     <param name="pid_theta_Ki" value="0.5" />
     <param name="pid_theta_Kd" value="0.5" />
 
-    <param name="desired_velocity" value="0.4" />
+    <param name="desired_velocity" value="0.2" />
 
     <param name="sub_kobuki_odom" value="/odom" />
     <param name="sub_kobuki_bump" value="/evt_bump" />

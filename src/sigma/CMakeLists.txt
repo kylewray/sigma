@@ -158,7 +158,7 @@ include_directories(
 # See http://ros.org/doc/api/catkin/html/adv_user_guide/variables.html
 
 catkin_install_python(
-  PROGRAMS scripts/sigma_pomdp_node scripts/sigma_action_kobuki_node
+  PROGRAMS scripts/sigma_pomdp_node scripts/sigma_kobuki_node
   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )
 

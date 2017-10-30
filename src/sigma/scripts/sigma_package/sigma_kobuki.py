@@ -49,11 +49,11 @@ import math
 import numpy as np
 
 
-class SigmaActionKobuki(object):
+class SigmaKobuki(object):
     """ A class to control a Kobuki following a POMDP policy. """
 
     def __init__(self):
-        """ The constructor for the SigmaActionKobuki class. """
+        """ The constructor for the SigmaKobuki class. """
 
         # These are the world-frame x, y, and theta values of the Kobuki. They
         # are updated as it moves toward the goal.
@@ -132,7 +132,7 @@ class SigmaActionKobuki(object):
         """ Start the necessary messages to operate the Kobuki. """
 
         if self.started:
-            rospy.logwarn("Warn[SigmaActionKobuki.start]: Already started.")
+            rospy.logwarn("Warn[SigmaKobuki.start]: Already started.")
             return
 
         #rospy.sleep(15)
@@ -246,7 +246,7 @@ class SigmaActionKobuki(object):
                 msg     --  The ModelUpdate message data.
         """
 
-        rospy.loginfo("Info[SigmaActionKobuki.sub_model_update]: The model has been updated. Resetting.")
+        rospy.loginfo("Info[SigmaKobuki.sub_model_update]: The model has been updated. Resetting.")
 
         self.resetRequired = True
         self.modelReady = True
@@ -397,10 +397,10 @@ class SigmaActionKobuki(object):
             srvUpdateBelief = rospy.ServiceProxy(self.srvUpdateBeliefTopic, UpdateBelief)
             res = srvUpdateBelief(self.relGoalX, self.relGoalY, observedBumpOrEdge)
             if not res.success:
-                rospy.logwarn("Error[SigmaActionKobuki.update_pomdp]: Failed to update belief.")
+                rospy.logwarn("Error[SigmaKobuki.update_pomdp]: Failed to update belief.")
                 return False
         except rospy.ServiceException:
-            rospy.logerr("Error[SigmaActionKobuki.update_pomdp]: Service exception when updating belief.")
+            rospy.logerr("Error[SigmaKobuki.update_pomdp]: Service exception when updating belief.")
             return False
 
         # Now do a service request for the SigmaPOMDP to send the current action.
@@ -409,12 +409,12 @@ class SigmaActionKobuki(object):
             srvGetAction = rospy.ServiceProxy(self.srvGetActionTopic, GetAction)
             res = srvGetAction()
         except rospy.ServiceException:
-            rospy.logerr("Error[SigmaActionKobuki.update_pomdp]: Service exception when getting action.")
+            rospy.logerr("Error[SigmaKobuki.update_pomdp]: Service exception when getting action.")
             return False
 
         # This may fail if not enough updates have been performed.
         if not res.success:
-            rospy.loginfo("Error[SigmaActionKobuki.update_pomdp]: No action was returned.")
+            rospy.loginfo("Error[SigmaKobuki.update_pomdp]: No action was returned.")
             return False
 
         self.update_state_from_odometry(msg)

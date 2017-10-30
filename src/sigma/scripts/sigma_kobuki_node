@@ -25,14 +25,14 @@
 
 import rospy
 
-from sigma_package.sigma_action_kobuki import *
+from sigma_package.sigma_kobuki import *
 
 
 def main():
-    rospy.init_node("sigma_action_kobuki_node")
+    rospy.init_node("sigma_kobuki_node")
 
-    sigmaAction = SigmaActionKobuki()
-    sigmaAction.start()
+    sigmaKobuki = SigmaKobuki()
+    sigmaKobuki.start()
 
     rospy.spin()
 

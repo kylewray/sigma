@@ -47,6 +47,7 @@ from sigma.msg import *
 from sigma.srv import *
 
 import math
+import random
 import itertools as it
 import ctypes as ct
 import numpy as np
@@ -670,18 +671,17 @@ class SigmaPOMDP(object):
         self.pomdp.Z = array_type_rrz_int(*np.array(Z).flatten())
         self.pomdp.B = array_type_rrz_float(*np.array(B).flatten())
 
-        for i in range(self.numberOfBeliefExpansions):
-            rospy.loginfo("Info[SigmaPOMDP.sub_map_pose_estimate]: Starting expansion %i." % (i + 1))
-            self.pomdp.expand(method='distinct_beliefs')
+        #for i in range(self.numberOfBeliefExpansions):
+        #    rospy.loginfo("Info[SigmaPOMDP.sub_map_pose_estimate]: Starting expansion %i." % (i + 1))
+        #    self.pomdp.expand(method='distinct_beliefs')
 
-        rospy.loginfo("Info[SigmaPOMDP.sub_map_pose_estimate]: Completed expansions.")
+        #rospy.loginfo("Info[SigmaPOMDP.sub_map_pose_estimate]: Completed expansions.")
 
         # Enable/Disable Sigma Approximation!
         # Enable/Disable Sigma Approximation!
         # Enable/Disable Sigma Approximation!
-        sigmaValue = self.pomdp.sigma_approximate(4)
-
-        rospy.loginfo("Info[SigmaPOMDP.sub_map_pose_estimate]: Sigma approximation applied! Sigma is %.3f." % (sigmaValue))
+        #sigmaValue = self.pomdp.sigma_approximate(4)
+        #rospy.loginfo("Info[SigmaPOMDP.sub_map_pose_estimate]: Sigma approximation applied! Sigma is %.3f." % (sigmaValue))
         # Enable/Disable Sigma Approximation!
         # Enable/Disable Sigma Approximation!
         # Enable/Disable Sigma Approximation!
@@ -690,8 +690,21 @@ class SigmaPOMDP(object):
         self.initialize_algorithm()
 
         # Set the initial belief to be collapsed at the correct location.
+
+        # Belief Initialization Method 1/3 -- Exact On Point
         self.belief = np.array([float(s == sInitialBelief) for s in range(self.pomdp.n)])
+
+        # Belief Initialization Method 2/3 -- Uniform
         #self.belief = np.array([1.0 / float(self.pomdp.n) for s in range(self.pomdp.n)])
+
+        # Belief Initialization Method 3/3 -- Randomly Around Point
+        #self.belief = np.array([random.random() / (math.sqrt(pow(gridPoseEstimateX - state[0], 2) \
+        #                                                        + pow(gridPoseEstimateY - state[1], 2)) + 1.0) \
+        #                            * float(math.sqrt(pow(gridPoseEstimateX - state[0], 2) \
+        #                                                        + pow(gridPoseEstimateY - state[1], 2)) < 5.0 \
+        #                            and self.stateObstaclePercentage[state] < 1.0) \
+        #                        for state in it.product(range(self.gridWidth), range(self.gridHeight))])
+        #self.belief /= self.belief.sum()
 
         # Optionally, visualize the belief.
         self.visualize_belief()

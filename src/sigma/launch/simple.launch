@@ -35,7 +35,7 @@
     <param name="visualization_marker_array" value="~visualization_marker_array" />
   </node>
 
-  <node pkg="sigma" type="sigma_action_kobuki_node" name="sigma_action_kobuki_node" output="screen">
+  <node pkg="sigma" type="sigma_kobuki_node" name="sigma_kobuki_node" output="screen">
     <!-- Note "remap" for commands 'pushes' data from something to something else. Conversely,
          information 'flows' from something to something else. Hence the remapping below. -->
     <remap from="/base_pose_ground_truth" to="/odom" /> <!-- nav_msgs -->
